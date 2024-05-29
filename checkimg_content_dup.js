@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 const fs = require('fs');
 const path = require('path');
 const { Worker, isMainThread, parentPort, workerData } = require('worker_threads');

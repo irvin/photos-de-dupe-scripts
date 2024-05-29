@@ -1,0 +1,15 @@
+{
+  "name": "image-dedupe-scripts",
+  "version": "1.0.0",
+  "description": "Scripts for deduplicating images based on content and GPS coordinates.",
+  "main": "index.js",
+  "bin": {
+    "checkimg-content-dup": "./checkimg_content_dup.js",
+    "checkimg-latlong-dup": "./checkimg_latlong_dup.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "jimp": "^0.16.1",
+    "exif-parser": "^0.1.12"
+  }
+}

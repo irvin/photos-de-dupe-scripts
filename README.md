@@ -4,7 +4,7 @@ Node.js scripts for processing sequence photos taken by a mounted camera during 
 
 \* the base scripts are mainly created with ChatGPT 4o
 
-## `checkimg_content_dup.js`
+## [checkimg_content_dup.js](checkimg_content_dup.js)
 
 This script compares the content similarity between consecutive images and moves images with minimal differences (indicating that the vehicle was likely stopped) to the output folder.
 
@@ -28,7 +28,7 @@ This script compares the content similarity between consecutive images and moves
     node checkimg_content_dup.js <inputFolder> <outputFolder>
     ```
 
-## `checkimg_latlong_dup.js`
+## [checkimg_latlong_dup.js](checkimg_latlong_dup.js)
 
 This script compares the GPS coordinates between consecutive images and moves images with identical coordinates to the output folder, filter out redundant images captured at the same location.
 

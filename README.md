@@ -1,6 +1,8 @@
 # Photos De-dupe Scripts
 
-Node.js scripts for processing sequence photos taken by a mounted camera during driving - remove duplicates based on content comparison and duplicate GPS coordinates.
+Node.js scripts for processing sequence photos taken by a mounted camera during driving: remove duplicates based on content comparison and duplicate GPS coordinates.
+
+\* the base scripts are mainly created with ChatGPT 4o
 
 ## `checkimg_content_dup.js`
 

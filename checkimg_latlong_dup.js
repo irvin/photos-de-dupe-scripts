@@ -4,6 +4,12 @@ const fs = require('fs');
 const path = require('path');
 const { Worker, isMainThread, parentPort, workerData } = require('worker_threads');
 const exifParser = require('exif-parser');
+const packageJson = require('./package.json');
+
+if (process.argv.includes('--version')) {
+  console.log(`checkimg-latlong-dup version: ${packageJson.version}`);
+  process.exit(0);
+}
 
 if (isMainThread) {
   // 檢查命令行參數

@@ -103,9 +103,9 @@ if (isMainThread) {
       parentPort.postMessage(logMessage);
 
       if (currentGps.lat === previousGps.lat && currentGps.lon === previousGps.lon) {
-        const outputFilePath = path.join(outputFolder, currentFile);
-        fs.renameSync(currentFilePath, outputFilePath); // 使用 renameSync 來搬移文件
-        parentPort.postMessage(`Moved: ${currentFile}`);
+        const outputFilePath = path.join(outputFolder, previousFile);
+        fs.renameSync(previousFilePath, outputFilePath);
+        parentPort.postMessage(`Moved: ${previousFile}`);
       }
     } else {
       parentPort.postMessage(`Skipping ${currentFile} due to missing GPS data`);

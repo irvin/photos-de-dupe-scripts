@@ -94,9 +94,9 @@ if (isMainThread) {
 
       // 如果差異很小，表示圖片幾乎沒有變化，認為車輛停止
       if (diff.percent < 0.05 && distance < 0.016) { // 可以根據實際情況調整
-        const outputFilePath = path.join(outputFolder, currentFile);
-        fs.renameSync(currentFilePath, outputFilePath); // 使用 renameSync 來搬移文件
-        parentPort.postMessage(`Moved: ${currentFile}`);
+        const outputFilePath = path.join(outputFolder, previousFile);
+        fs.renameSync(previousFilePath, outputFilePath); // 使用 renameSync 來搬移文件
+        parentPort.postMessage(`Moved: ${previousFile}`);
       }
     } catch (err) {
       parentPort.postMessage(`Error processing file ${currentFile}: ${err}`);

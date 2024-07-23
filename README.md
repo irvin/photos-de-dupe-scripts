@@ -53,6 +53,21 @@ This script compares the GPS coordinates between consecutive images and moves im
     node checkimg_latlong_dup.js <inputFolder> <outputFolder>
     ```
 
+### Install as global command
+
+1. Install
+
+    ```bash
+    npm install -g .
+    ```
+
+2. Run
+
+    ```bash
+    checkimg-content-dup --version
+    checkimg-latlong-dup --version
+    ```
+
 ## License
 
 This project is licensed under the MIT License. See the [LICENSE](/LICENSE) file for details.

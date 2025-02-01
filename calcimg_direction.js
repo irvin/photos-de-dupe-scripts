@@ -14,7 +14,7 @@ if (process.argv.includes('--version')) {
 if (isMainThread) {
   // 檢查命令行參數
   if (process.argv.length !== 3) {
-    console.error('Usage: node checkimg_direction.js <inputFolder>');
+    console.error('Usage: node calcimg_direction.js <inputFolder>');
     process.exit(1);
   }
 
@@ -38,56 +38,57 @@ if (isMainThread) {
     return dd;
   };
 
+  const parseExifDateTime = (exifDateTime) => {
+    try {
+      // EXIF 日期時間格式為 "YYYY:MM:DD HH:MM:SS"
+      const [date, time] = exifDateTime.split(' ');
+      const [year, month, day] = date.split(':');
+      const [hour, minute, second] = time.split(':');
+      
+      return new Date(year, month - 1, day, hour, minute, second).getTime();
+    } catch (err) {
+      console.error(`Error parsing EXIF datetime: ${exifDateTime}`);
+      return null;
+    }
+  };
+
   const getExifData = (filePath) => {
     try {
-      const jpeg = fs.readFileSync(filePath);
-      const data = jpeg.toString('binary');
+      const data = fs.readFileSync(filePath).toString('binary');
       const exifData = piexif.load(data);
       
-      // 讀取時間資訊
-      let timestamp = null;
-      if (exifData['Exif']) {
-        const dateTimeOriginal = exifData['Exif'][piexif.ExifIFD.DateTimeOriginal];
-        const dateTime = exifData['0th'][piexif.ImageIFD.DateTime];
-        const exifDateTime = dateTimeOriginal || dateTime;
-        
-        if (exifDateTime) {
-          const [date, time] = exifDateTime.split(' ');
-          const [year, month, day] = date.split(':');
-          const [hour, minute, second] = time.split(':');
-          timestamp = new Date(year, month - 1, day, hour, minute, second).getTime();
-        }
-      }
-
-      // 讀取 GPS 資訊
-      let coordinates = null;
-      if (exifData['GPS']) {
-        const gps = exifData['GPS'];
-        const lat = gps[piexif.GPSIFD.GPSLatitude];
-        const lon = gps[piexif.GPSIFD.GPSLongitude];
-        const latRef = gps[piexif.GPSIFD.GPSLatitudeRef];
-        const lonRef = gps[piexif.GPSIFD.GPSLongitudeRef];
-
-        if (lat && lon) {
-          const latitude = convertDMSToDD(lat, latRef);
-          const longitude = convertDMSToDD(lon, lonRef);
-          coordinates = { lat: latitude, lon: longitude };
-        }
-      }
-
       return {
-        timestamp,
-        coordinates,
-        exifData  // 保存完整的 EXIF 數據以供後續使用
+        timestamp: getTimestamp(exifData),
+        coordinates: getCoordinates(exifData),
+        exifData
       };
     } catch (err) {
-      console.error(`Error reading EXIF data from file ${filePath}: ${err}`);
-      return {
-        timestamp: null,
-        coordinates: null,
-        exifData: null
-      };
+      console.error(`Error reading EXIF: ${err}`);
+      return { timestamp: null, coordinates: null, exifData: null };
     }
+  };
+
+  const getTimestamp = (exifData) => {
+    if (!exifData['Exif']) return null;
+    const datetime = exifData['Exif'][piexif.ExifIFD.DateTimeOriginal] 
+      || exifData['0th'][piexif.ImageIFD.DateTime];
+    return datetime ? parseExifDateTime(datetime) : null;
+  };
+
+  const getCoordinates = (exifData) => {
+    if (!exifData['GPS']) return null;
+    const gps = exifData['GPS'];
+    const lat = gps[piexif.GPSIFD.GPSLatitude];
+    const lon = gps[piexif.GPSIFD.GPSLongitude];
+    const latRef = gps[piexif.GPSIFD.GPSLatitudeRef];
+    const lonRef = gps[piexif.GPSIFD.GPSLongitudeRef];
+
+    if (lat && lon) {
+      const latitude = convertDMSToDD(lat, latRef);
+      const longitude = convertDMSToDD(lon, lonRef);
+      return { lat: latitude, lon: longitude };
+    }
+    return null;
   };
 
   // 讀取所有圖片檔案並按照 EXIF 時間排序
@@ -178,25 +179,18 @@ if (isMainThread) {
 
   const writeDirectionToExif = (filePath, direction) => {
     try {
-      const jpeg = fs.readFileSync(filePath);
-      const data = jpeg.toString('binary');
+      const data = fs.readFileSync(filePath).toString('binary');
       const exifObj = piexif.load(data);
-
-      // 設置 GPS 方向資訊
-      if (!exifObj['GPS']) {
-        exifObj['GPS'] = {};
-      }
+      
+      exifObj['GPS'] = exifObj['GPS'] || {};
       exifObj['GPS'][piexif.GPSIFD.GPSImgDirection] = [direction * 100, 100]; // 轉換為有理數格式
       exifObj['GPS'][piexif.GPSIFD.GPSImgDirectionRef] = 'T'; // True direction
 
-      const exifBytes = piexif.dump(exifObj);
-      const newData = piexif.insert(exifBytes, data);
-      const newJpeg = Buffer.from(newData, 'binary');
-      fs.writeFileSync(filePath, newJpeg);
-
+      const newData = piexif.insert(piexif.dump(exifObj), data);
+      fs.writeFileSync(filePath, Buffer.from(newData, 'binary'));
       return true;
     } catch (err) {
-      parentPort.postMessage(`Error writing EXIF data to file ${filePath}: ${err}`);
+      console.error(`Error writing EXIF: ${err}`);
       return false;
     }
   };

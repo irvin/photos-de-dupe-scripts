@@ -13,12 +13,14 @@ if (process.argv.includes('--version')) {
 
 if (isMainThread) {
   // 檢查命令行參數
-  if (process.argv.length !== 3) {
-    console.error('Usage: node calcimg_direction.js <inputFolder>');
+  if (process.argv.length < 3 || process.argv.length > 4) {
+    console.error('Usage: node calcimg_direction.js <inputFolder> [bearingAdjustment]');
+    console.error('  bearingAdjustment: 方向角度調整值（可選，預設為 0）');
     process.exit(1);
   }
 
   const inputFolder = process.argv[2];
+  const bearingAdjustment = parseFloat(process.argv[3]) || 0;
 
   const convertDMSToDD = (dmsArray, ref) => {
     if (!Array.isArray(dmsArray) || dmsArray.length !== 3) {
@@ -123,7 +125,8 @@ if (isMainThread) {
         currentFile: files[index],
         previousFile: files[index - 1],
         inputFolder,
-        isFirstPair: index === 1  // 標記是否為第一組照片
+        isFirstPair: index === 1,
+        bearingAdjustment  // 傳遞角度調整值給 worker
       },
     });
 
@@ -158,7 +161,7 @@ if (isMainThread) {
   }
 } else {
   // 工作者執行緒程式
-  const { currentFile, previousFile, inputFolder, isFirstPair } = workerData;
+  const { currentFile, previousFile, inputFolder, isFirstPair, bearingAdjustment } = workerData;
 
   const calculateBearing = (lat1, lon1, lat2, lon2) => {
     // 將經緯度轉換為弧度
@@ -197,12 +200,15 @@ if (isMainThread) {
 
   const processImagePair = (currentFile, previousFile, isFirstPair) => {
     if (currentFile.coordinates && previousFile.coordinates) {
-      const direction = calculateBearing(
+      let direction = calculateBearing(
         previousFile.coordinates.lat, previousFile.coordinates.lon,
         currentFile.coordinates.lat, currentFile.coordinates.lon
       );
 
-      const logMessage = `Processing ${currentFile.name}, direction: ${direction.toFixed(2)}°`;
+      // 加入角度調整
+      direction = (direction + bearingAdjustment + 360) % 360;
+
+      const logMessage = `Processing ${currentFile.name}, direction: ${direction.toFixed(2)}° (adjusted by ${bearingAdjustment}°)`;
       parentPort.postMessage(logMessage);
 
       // 寫入當前照片的方向

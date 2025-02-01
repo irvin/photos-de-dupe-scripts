@@ -64,7 +64,7 @@ This script identifies and moves photos with identical GPS coordinates to an out
 
 ## [calcimg_dir.js](calcimg_dir.js)
 
-This script calculates and writes bearing (direction) information to each image's EXIF data based on GPS coordinates of consecutive images. The bearing of the first image will be set to the same as the second image.
+This script calculates (interpolates) and writes bearing (direction) information to each image's EXIF data based on GPS coordinates of consecutive images. The bearing of the first image will be set to the same as the second image.
 
 ### Features
 

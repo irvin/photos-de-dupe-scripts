@@ -1,18 +1,26 @@
 # Photos De-dupe Scripts
 
-Node.js scripts for processing sequence photos taken by a mounted camera during driving: remove duplicates based on content comparison and duplicate GPS coordinates.
+Node.js scripts for processing sequence photos taken by a mounted camera during driving. These scripts help to:
 
-\* the base scripts are mainly created with ChatGPT 4o
+- Remove duplicate photos based on content similarity
+- Filter out photos with identical GPS coordinates
+- Calculate and write bearing (direction) information to photos
+
+\* the base scripts are mainly created with ChatGPT 4o and Cousor with claude-3.5-sonnet
 
 ## [checkimg_content_dup.js](checkimg_content_dup.js)
 
-This script compares the content similarity between consecutive images and moves images with minimal differences (indicating that the vehicle was likely stopped) to the output folder.
+This script identifies and moves near-identical consecutive images to an output folder, useful for removing redundant photos taken when the vehicle was stationary.
 
 ### Features
 
-- Reads all `.jpg` images in the input folder.
-- Uses the `Jimp` library to compare the content differences between consecutive images.
-- Moves the current image to the output folder if the differences and distance between two images are minimal.
+- Reads all `.jpg` images in the input folder
+- Uses `Jimp` library for image comparison
+- Multi-threaded processing (7 workers)
+- Moves images to output folder when:
+  - Content difference is less than 5%
+  - Image distance is less than 0.016
+- Preserves original files by moving duplicates to output folder
 
 ### Usage
 
@@ -30,14 +38,15 @@ This script compares the content similarity between consecutive images and moves
 
 ## [checkimg_latlong_dup.js](checkimg_latlong_dup.js)
 
-This script compares the GPS coordinates between consecutive images and moves images with identical coordinates to the output folder, filter out redundant images captured at the same location.
+This script identifies and moves photos with identical GPS coordinates to an output folder, helping to remove redundant photos taken at the same location.
 
 ### Features
 
-- Reads all `.jpg` images in the input folder.
-- Extracts GPS coordinates from the EXIF data of each image using the `exif-parser` library.
-- Compares the GPS coordinates between consecutive images.
-- Moves the current image to the output folder if the GPS coordinates of two consecutive images are identical.
+- Reads all `.jpg` images in the input folder
+- Uses `exif-parser` to extract GPS coordinates
+- Multi-threaded processing (4 workers)
+- Compares consecutive images' GPS coordinates
+- Preserves original files by moving duplicates to output folder
 
 ### Usage
 
@@ -53,19 +62,52 @@ This script compares the GPS coordinates between consecutive images and moves im
     node checkimg_latlong_dup.js <inputFolder> <outputFolder>
     ```
 
-### Install as global command
+## [calcimg_dir.js](calcimg_dir.js)
 
-1. Install
+This script calculates and writes bearing (direction) information to each image's EXIF data based on GPS coordinates of consecutive images. The bearing of the first image will be set to the same as the second image.
+
+### Features
+
+- Reads all `.jpg` images in the input folder
+- Sorts images by EXIF timestamp
+- Uses `piexifjs` for EXIF reading/writing
+- Multi-threaded processing (4 workers)
+- Calculates bearing between consecutive GPS coordinates
+- Sets first image's bearing same as second image
+- Supports optional bearing adjustment
+- Modifies files in-place
+
+### Usage
+
+1. Install dependencies:
+
+    ```bash
+    npm install piexifjs
+    ```
+
+2. Run the script:
+
+    ```bash
+    # Basic usage
+    node calcimg_dir.js <inputFolder>
+
+    # With bearing adjustment (e.g., add 10 degrees clockwise or subtract 15 degrees counter-clockwise)
+    node calcimg_dir.js <inputFolder> 10
+    node calcimg_dir.js <inputFolder> -15
+    ```
+
+## Install globally for command-line access
 
     ```bash
     npm install -g .
     ```
 
-2. Run
+When installed globally, you can use these commands:
 
     ```bash
     checkimg-content-dup --version
     checkimg-latlong-dup --version
+    calcimg-dir --version
     ```
 
 ## License

@@ -7,14 +7,14 @@ const piexif = require('piexifjs');
 const packageJson = require('./package.json');
 
 if (process.argv.includes('--version')) {
-  console.log(`checkimg-direction version: ${packageJson.version}`);
+  console.log(`calcimg-dir version: ${packageJson.version}`);
   process.exit(0);
 }
 
 if (isMainThread) {
   // 檢查命令行參數
   if (process.argv.length < 3 || process.argv.length > 4) {
-    console.error('Usage: node calcimg_direction.js <inputFolder> [bearingAdjustment]');
+    console.error('Usage: node calcimg_dir.js <inputFolder> [bearingAdjustment]');
     console.error('  bearingAdjustment: 方向角度調整值（可選，預設為 0）');
     process.exit(1);
   }

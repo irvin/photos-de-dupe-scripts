@@ -69,13 +69,15 @@ This script calculates (interpolates) and writes bearing (direction) information
 ### Features
 
 - Reads all `.jpg` images in the input folder
-- Sorts images by EXIF timestamp
+- **Recursive folder processing**: Automatically detects and processes all subfolders containing images
+- Sorts images by EXIF timestamp within each folder
 - Uses `piexifjs` for EXIF reading/writing
-- Multi-threaded processing (4 workers)
+- Multi-threaded processing (4 workers per folder)
 - Calculates bearing between consecutive GPS coordinates
 - Sets first image's bearing same as second image
 - Supports optional bearing adjustment
 - Modifies files in-place
+- Skips empty folders or folders with insufficient GPS data
 
 ### Usage
 

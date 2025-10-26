@@ -211,7 +211,7 @@ if (isMainThread) {
   };
 
   // 掃描資料夾並處理
-  const foldersToProcess = scanDirectory(inputFolder);
+  let foldersToProcess = scanDirectory(inputFolder);
 
   if (foldersToProcess.length === 0) {
     console.log(`在 ${inputFolder} 中沒有找到包含 .jpg 檔案的資料夾。`);
@@ -224,11 +224,15 @@ if (isMainThread) {
   });
 
   // 依序處理每個資料夾
-  foldersToProcess.forEach(folderPath => {
+  const totalFolders = foldersToProcess.length;
+  foldersToProcess.forEach((folderPath, index) => {
     processFolder(folderPath, bearingAdjustment);
   });
 
-  console.log(`\n所有資料夾處理完成！總共處理了 ${foldersToProcess.length} 個資料夾。`);
+  // 清理記憶體
+  foldersToProcess = null;
+
+  console.log(`\n所有資料夾處理完成！總共處理了 ${totalFolders} 個資料夾。`);
 } else {
   // 工作者執行緒程式
   const { currentFile, previousFile, inputFolder, isFirstPair, bearingAdjustment } = workerData;

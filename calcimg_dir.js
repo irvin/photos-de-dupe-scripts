@@ -95,12 +95,11 @@ if (isMainThread) {
 
       return {
         timestamp: getTimestamp(exifData),
-        coordinates: getCoordinates(exifData),
-        exifData
+        coordinates: getCoordinates(exifData)
       };
     } catch (err) {
       console.error(`Error reading EXIF: ${err}`);
-      return { timestamp: null, coordinates: null, exifData: null };
+      return { timestamp: null, coordinates: null };
     }
   };
 
@@ -140,8 +139,7 @@ if (isMainThread) {
         return {
           name: file,
           time: fileTime,
-          coordinates: exifInfo.coordinates,
-          exifData: exifInfo.exifData
+          coordinates: exifInfo.coordinates
         };
       })
       .sort((a, b) => a.time - b.time);

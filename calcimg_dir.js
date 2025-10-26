@@ -130,7 +130,7 @@ if (isMainThread) {
     console.log(`\n=== 處理資料夾: ${folderPath} ===`);
 
     // 讀取所有圖片檔案並按照 EXIF 時間排序
-    const files = fs.readdirSync(folderPath)
+    let files = fs.readdirSync(folderPath)
       .filter(file => file.toLowerCase().endsWith('.jpg'))
       .map(file => {
         const filePath = path.join(folderPath, file);
@@ -196,6 +196,8 @@ if (isMainThread) {
         completedPairs++;
         if (completedPairs === files.length - 1) {
           console.log(`資料夾 ${folderPath} 處理完成。`);
+          // 清理記憶體：清空 files 陣列
+          files = null;
         } else {
           startWorker();
         }

@@ -98,6 +98,28 @@ This script calculates (interpolates) and writes bearing (direction) information
     node calcimg_dir.js <inputFolder> -15
     ```
 
+## [geotag_with_gpx.js](geotag_with_gpx.js)
+This script geotags images with a GPX file.
+
+### Features
+
+- Reads all `.jpg` images in the input folder recursively
+- writes GPS data to images from GPX file
+
+### Usage
+
+1. Install dependencies:
+
+    ```bash
+    npm install piexifjs
+    ```
+
+2. Run the script:
+
+    ```bash
+    node geotag_with_gpx.js <inputFolder> <gpxFile> <outputFolder>
+    ```
+
 ## Install globally for command-line access
 
     ```bash

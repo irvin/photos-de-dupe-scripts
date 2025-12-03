@@ -1,9 +1,10 @@
 {
   "name": "image-dedupe-scripts",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "Scripts for deduplicating images based on content and GPS coordinates.",
   "main": "index.js",
   "bin": {
+    "geotag_with_gpx": "./geotag_with_gpx.js",
     "calcimg-dir": "./calcimg_dir.js",
     "checkimg-content-dup": "./checkimg_content_dup.js",
     "checkimg-latlong-dup": "./checkimg_latlong_dup.js"

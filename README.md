@@ -99,12 +99,13 @@ This script calculates (interpolates) and writes bearing (direction) information
     ```
 
 ## [geotag_with_gpx.js](geotag_with_gpx.js)
-This script geotags images with a GPX file.
+This script geotags photos by matching image timestamps with a GPX track.
 
 ### Features
 
-- Reads all `.jpg` images in the input folder recursively
-- writes GPS data to images from GPX file
+- Recursively reads all `.jpg` images in the input folder.
+- Writes GPS coordinates to images using a GPX file.
+- Accepts an optional photo timezone offset (e.g., `+09:00`); when omitted, the system/local timezone is used.
 
 ### Usage
 
@@ -117,7 +118,11 @@ This script geotags images with a GPX file.
 2. Run the script:
 
     ```bash
+    # Basic usage (use the computer's local timezone for photo timestamps)
     node geotag_with_gpx.js <inputFolder> <gpxFile> <outputFolder>
+
+    # Specify a timezone offset (e.g., UTC+9)
+    node geotag_with_gpx.js <inputFolder> <gpxFile> <outputFolder> "+09:00"
     ```
 
 ## Install globally for command-line access

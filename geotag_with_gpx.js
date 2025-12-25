@@ -12,14 +12,29 @@ if (process.argv.includes('--version')) {
 }
 
 // ----------- 參數處理 -----------
-if (process.argv.length !== 5) {
-  console.error('Usage: node geotag_with_gpx.js <inputFolder> <gpxFile> <outputFolder>');
+if (process.argv.length < 5 || process.argv.length > 6) {
+  console.error('Usage: node geotag_with_gpx.js <inputFolder> <gpxFile> <outputFolder> [timezone]');
+  console.error('  timezone: Optional timezone offset (e.g., "+09:00" for JST, "+08:00" for CST)');
+  console.error('           If not specified, system timezone will be used');
   process.exit(1);
 }
 
 const inputFolder = process.argv[2];
 const gpxFile = process.argv[3];
 const outputFolder = process.argv[4];
+const timezoneArg = process.argv[5]; // 可選的時區參數
+
+// 取得系統時區偏移，格式為 +HH:MM 或 -HH:MM
+function getSystemTZOffset() {
+  const minutes = -new Date().getTimezoneOffset();
+  const sign = minutes >= 0 ? '+' : '-';
+  const abs = Math.abs(minutes);
+  const hh = String(Math.floor(abs / 60)).padStart(2, '0');
+  const mm = String(abs % 60).padStart(2, '0');
+  return `${sign}${hh}:${mm}`;
+}
+
+const timezone = timezoneArg || getSystemTZOffset();
 const tempFolder = './_temp_nogps';
 
 // ----------- 建立資料夾 -----------
@@ -46,6 +61,7 @@ for (const file of jpgFiles) {
 
 // ----------- Step 2: Geotag 使用 exiftool -----------
 console.log('Step 2: Running exiftool geotag...');
+console.log(`  Photo timezone: ${timezone}`);
 
 try {
   execSync(`exiftool -r \
@@ -53,6 +69,7 @@ try {
     -ext jpg \
     -overwrite_original \
     -api GeoMaxIntSecs=3 -api GeoMaxExtSecs=0 \
+    '-geotime<\${DateTimeOriginal}${timezone}' \
     "${tempFolder}"`, { stdio: 'inherit' });
 } catch (err) {
   console.error('❌ Exiftool geotag failed:', err.message);

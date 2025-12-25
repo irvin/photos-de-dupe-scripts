@@ -42,13 +42,36 @@ if (!fs.existsSync(tempFolder)) fs.mkdirSync(tempFolder);
 if (!fs.existsSync(outputFolder)) fs.mkdirSync(outputFolder);
 
 // ----------- Step 1: 去除 GPS 並複製到暫存資料夾 -----------
-const jpgFiles = fs.readdirSync(inputFolder).filter(f => f.toLowerCase().endsWith('.jpg'));
+function collectJpgFiles(rootDir) {
+  const results = [];
+  const stack = ['.'];
+
+  while (stack.length > 0) {
+    const relDir = stack.pop();
+    const absDir = path.join(rootDir, relDir);
+    const entries = fs.readdirSync(absDir, { withFileTypes: true });
+
+    for (const entry of entries) {
+      const relPath = path.join(relDir, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(relPath);
+      } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.jpg')) {
+        results.push(relPath);
+      }
+    }
+  }
+
+  return results;
+}
+
+const jpgFiles = collectJpgFiles(inputFolder);
 
 console.log(`Step 1: Stripping GPS from ${jpgFiles.length} images...`);
 
 for (const file of jpgFiles) {
   const inputPath = path.join(inputFolder, file);
   const outputPath = path.join(tempFolder, file);
+  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 
   const data = fs.readFileSync(inputPath).toString('binary');
   const exifObj = piexif.load(data);
@@ -92,6 +115,6 @@ try {
 
 // ----------- Step 4: 刪除暫存資料夾 -----------
 console.log(`Step 4: Cleaning up temp folder (${tempFolder})...`);
-fs.rmSync(tempFolder, { recursive: true, force: true });
+fs.rmSync(tempFolder, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
 
 console.log(`✅ Done. Output saved to: ${outputFolder}`);

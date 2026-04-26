@@ -272,6 +272,35 @@ if (isMainThread) {
     }
   };
 
+  const copyDirectionExif = (sourceFilePath, targetFilePath) => {
+    try {
+      const sourceData = fs.readFileSync(sourceFilePath).toString('binary');
+      const sourceExifObj = piexif.load(sourceData);
+      const sourceGps = sourceExifObj['GPS'] || {};
+      const direction = sourceGps[piexif.GPSIFD.GPSImgDirection];
+      const directionRef = sourceGps[piexif.GPSIFD.GPSImgDirectionRef];
+
+      if (!direction) {
+        parentPort.postMessage(`Skipping direction copy because source has no direction: ${path.basename(sourceFilePath)}`);
+        return false;
+      }
+
+      const targetData = fs.readFileSync(targetFilePath).toString('binary');
+      const targetExifObj = piexif.load(targetData);
+
+      targetExifObj['GPS'] = targetExifObj['GPS'] || {};
+      targetExifObj['GPS'][piexif.GPSIFD.GPSImgDirection] = direction;
+      targetExifObj['GPS'][piexif.GPSIFD.GPSImgDirectionRef] = directionRef || 'T';
+
+      const newData = piexif.insert(piexif.dump(targetExifObj), targetData);
+      fs.writeFileSync(targetFilePath, Buffer.from(newData, 'binary'));
+      return true;
+    } catch (err) {
+      console.error(`Error copying EXIF direction: ${err}`);
+      return false;
+    }
+  };
+
   const processImagePair = (currentFile, previousFile, isFirstPair) => {
     if (currentFile.coordinates && previousFile.coordinates) {
       let direction = calculateBearing(
@@ -286,14 +315,18 @@ if (isMainThread) {
       parentPort.postMessage(logMessage);
 
       // 寫入當前照片的方向
-      if (writeDirectionToExif(path.join(inputFolder, currentFile.name), direction)) {
-        parentPort.postMessage(`Updated direction for: ${currentFile.name}`);
-      }
+      const currentFilePath = path.join(inputFolder, currentFile.name);
+      const previousFilePath = path.join(inputFolder, previousFile.name);
+      const updatedCurrent = writeDirectionToExif(currentFilePath, direction);
 
-      // 如果是第一組照片，也將相同的方向寫入第一張照片
-      if (isFirstPair) {
-        if (writeDirectionToExif(path.join(inputFolder, previousFile.name), direction)) {
-          parentPort.postMessage(`Updated direction for first image: ${previousFile.name}`);
+      if (updatedCurrent) {
+        parentPort.postMessage(`Updated direction for: ${currentFile.name}`);
+
+        // 如果是第一組照片，第二張寫入完成後，直接把第二張的方向複製到第一張照片
+        if (isFirstPair) {
+          if (copyDirectionExif(currentFilePath, previousFilePath)) {
+            parentPort.postMessage(`Copied direction from ${currentFile.name} to first image: ${previousFile.name}`);
+          }
         }
       }
     } else {

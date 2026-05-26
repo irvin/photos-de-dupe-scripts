@@ -4,6 +4,7 @@ Node.js scripts for processing sequence photos taken by a mounted camera during 
 
 - Remove duplicate photos based on content similarity
 - Filter out photos with identical GPS coordinates
+- Filter out photos taken while moving slower than a speed threshold
 - Calculate and write bearing (direction) information to photos
 
 \* the base scripts are mainly created with ChatGPT 4o and Cousor with claude-3.5-sonnet
@@ -61,6 +62,47 @@ This script identifies and moves photos with identical GPS coordinates to an out
     ```bash
     node checkimg_latlong_dup.js <inputFolder> <outputFolder>
     ```
+
+## [checkimg_speed_dupe.js](checkimg_speed_dupe.js)
+
+This script identifies and moves photos taken while the vehicle was moving slower than a threshold (km/h), based on GPS and EXIF timestamps between consecutive images. When a slow segment is detected, the **previous** image is moved so the **last** image in a stop sequence is kept (same behavior as `checkimg_latlong_dup.js`).
+
+### Features
+
+- Recursively processes all subfolders that contain `.jpg` images (same scan rules as `calcimg_dir.js`)
+- Sorts images by EXIF `DateTimeOriginal` within each folder (falls back to file `mtime`)
+- Uses `piexifjs` for EXIF GPS and timestamp reading
+- Computes speed with Haversine distance between consecutive GPS points
+- Moves removed images to the output folder, preserving paths relative to the input root
+- Single-threaded processing per folder (avoids rename races)
+
+### Usage
+
+1. Install dependencies:
+
+    ```bash
+    npm install piexifjs
+    ```
+
+2. Run the script:
+
+    ```bash
+    node checkimg_speed_dupe.js <inputFolder> <outputFolder> <minKph>
+    ```
+
+    Example (remove segments slower than 5 km/h):
+
+    ```bash
+    node checkimg_speed_dupe.js ./photos ./removed 5
+    ```
+
+### Suggested pipeline order
+
+1. `geotag_with_gpx.js`
+2. `checkimg_content_dup.js`
+3. `checkimg_latlong_dup.js`
+4. `checkimg_speed_dupe.js`
+5. `calcimg_dir.js`
 
 ## [calcimg_dir.js](calcimg_dir.js)
 
@@ -136,6 +178,7 @@ When installed globally, you can use these commands:
     ```bash
     checkimg-content-dup --version
     checkimg-latlong-dup --version
+    checkimg-speed-dupe --version
     calcimg-dir --version
     ```
 

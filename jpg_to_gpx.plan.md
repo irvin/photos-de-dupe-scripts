@@ -28,8 +28,9 @@ exiftool -p "/Users/Irvin/Coding/360-street-view-photos-processing/gpx.fmt" \
 - 現有 GPX 顯示 2,653 個 track points，而資料夾中有 2,654 張 JPG；新工具
   應明確回報被略過的圖片與原因。
 - 抽查照片可取得 `GPSLatitude`、`GPSLongitude`、`GPSAltitude` 與
-  `DateTimeOriginal`，但未取得可供上述指令輸出的 `GPSDateTime` /
-  `GPSTimeStamp`；現有 GPX 因此沒有 `<time>` 值。
+  `DateTimeOriginal`，但未取得可組成 GPS 時間的 `GPSDateStamp` /
+  `GPSTimeStamp`（ExifTool 的 `$gpsdatetime` 即由此組合）；現有 GPX
+  因此沒有 `<time>` 值。
 - 檔名包含當地時間與時區，例如
   `2026-05-23T07-26-10+0800_f00300.jpg`，可作為 EXIF 未帶 timezone 時的
   時間後備來源。
@@ -52,6 +53,13 @@ exiftool -p "/Users/Irvin/Coding/360-street-view-photos-processing/gpx.fmt" \
 - 不依道路資料推測兩點間的行駛路線。
 - 不取代 `geotag_with_gpx.js`、`checkimg_*` 或 `calcimg_dir.js` 的功能。
 
+### Pipeline 定位
+
+- 取代根目錄 `readme.md` 步驟 9 的 `exiftool -p gpx.fmt ...` 命令。
+- 建議在 `calcimg_dir.js` 之後、上傳 Panoramax / Mapillary 之前執行。
+- 與 Panoramax `--split-distance 200` 使用相同距離慣例，但 GPX 切段是
+  獨立步驟，不依賴上傳工具。
+
 ## CLI 規格
 
 ```bash
@@ -70,7 +78,7 @@ jpg-to-gpx <inputFolder> <outputGpx> [options]
 | --- | --- | --- |
 | `--split-distance-m <meters>` | `200` | 相鄰有效點距離大於此值時開始新的 `<trkseg>`。 |
 | `--split-time-sec <seconds>` | `30` | 相鄰有效點時間差大於此值時開始新的 `<trkseg>`。 |
-| `--timezone <+HH:MM>` | 無 | `DateTimeOriginal` 沒有時區，且檔名也無法提供時區時使用的後備時區。 |
+| `--timezone <offset>` | 無 | 後備時區。接受 `+08:00` 或 `+0800` 格式。 |
 | `--recursive` | `false` | 遞迴尋找輸入資料夾下的 JPG。未指定時只處理資料夾第一層。 |
 | `--force` | `false` | 允許覆蓋既有輸出 GPX；未指定且輸出檔已存在時終止。 |
 | `--version` | - | 顯示工具版本。 |
@@ -96,12 +104,25 @@ node jpg_to_gpx.js ./geocoded ./output.gpx \
   --force
 ```
 
+> 注意：`geotag_with_gpx.js`、`checkimg_speed_dupe.js` 等腳本預設遞迴掃描
+> 子目錄；本工具預設只處理輸入資料夾第一層。若 geocoded 照片在子目錄中，
+> 需加 `--recursive`。
+
 ## 輸入資料與欄位規則
 
 ### GPS 座標
 
 - 必要欄位：`GPSLatitude`、`GPSLongitude`。
 - 選用欄位：`GPSAltitude`；無高度時省略該點的 `<ele>`。
+- 座標轉換沿用 `checkimg_speed_dupe.js` 的 `convertDMSToDD` 邏輯
+  （DMS rational → 十進位，參考 `GPSLatitudeRef` / `GPSLongitudeRef`
+  決定正負）。
+- 下列情況視為無效 GPS，等同「無有效 latitude/longitude」：
+  - 缺 `GPSLatitude` 或 `GPSLongitude`。
+  - DMS 陣列格式錯誤或 ref 缺失導致 `convertDMSToDD` 回傳 `null`。
+  - 轉換後 lat 不在 [-90, 90] 或 lon 不在 [-180, 180]。
+- `GPSAltitude`：自 piexif rational 轉為公尺；若存在
+  `GPSAltitudeRef === 1`（海平面下），高度取負值。
 - 無有效 latitude/longitude、但可解析時間的圖片不輸出為 track point，仍
   依時間插入排序序列作為軌跡中斷標記，避免跳過無座標圖片後錯誤連接前後點。
 
@@ -109,16 +130,36 @@ node jpg_to_gpx.js ./geocoded ./output.gpx \
 
 每張圖片必須解析出含時區、可轉為 UTC 的時間。優先順序如下：
 
-1. EXIF `GPSDateTime`，若完整且有效。
-2. EXIF `DateTimeOriginal` 搭配 EXIF `OffsetTimeOriginal`。
-3. EXIF `DateTimeOriginal` 搭配檔名中的 timezone，例如 `+0800`。
+1. EXIF `GPSDateStamp` + `GPSTimeStamp` 組合：
+   - 兩者皆存在且可解析時，視為 UTC 時間（與 ExifTool `$gpsdatetime`
+     行為一致）。
+   - 僅存在其一，或解析失敗，fall through 到下一項。
+2. EXIF `DateTimeOriginal` 搭配 EXIF `OffsetTimeOriginal`（tag `0x9011`）。
+3. EXIF `DateTimeOriginal` 搭配檔名中的 timezone offset，例如 `+0800`。
 4. EXIF `DateTimeOriginal` 搭配命令列 `--timezone`。
 5. 從完整檔名時間格式直接解析，例如
    `2026-05-23T07-26-10+0800_f00300.jpg`。
+   - 僅當第 1–4 項皆無法取得時間時使用；此時以檔名時間為準，
+     不再嘗試與 EXIF `DateTimeOriginal` 合併。
 
 若仍無法取得含時區的時間，略過該圖片並回報原因。由於這種圖片無法放入
 可靠的時間順序，不能作為前後軌跡的中斷標記；此邊界必須顯示在摘要警告中。
 不以 filesystem `mtime` 取代拍攝時間，因為複製或匯出照片會改變該值。
+
+### 時間一致性警告
+
+當第 3 或第 4 項成功（EXIF 時間 + 時區 offset），且檔名中亦含完整
+可解析時間時，若兩者 UTC 時間相差超過 2 秒，摘要中輸出 warning，
+但仍以 EXIF 時間 + offset 為準。
+
+### 略過原因分類
+
+| 原因代碼 | 說明 | 是否可作為 segment boundary |
+| --- | --- | --- |
+| `no_time` | 無法解析含時區的時間 | 否 |
+| `no_gps` | 有時間但無有效 GPS | 是 |
+| `read_error` | 檔案讀取或 EXIF 解析失敗 | 否（無法排序） |
+| `invalid_exif` | EXIF 結構損壞 | 否 |
 
 ### 排序
 
@@ -127,13 +168,17 @@ node jpg_to_gpx.js ./geocoded ./output.gpx \
 
 ## 切段規則
 
-工具依排序後的有效點依序建立 segments。下列任一條件成立時，當前點成為
-新的 `<trkseg>` 第一點：
+工具先依時間排序**所有**可解析時間的圖片（含無 GPS 者），再線性掃描
+此序列建立 segments。
 
-- 這是第一個有效點。
-- 排序序列中介於兩個有效點之間的圖片有可解析時間、但無有效 GPS。
-- 與上一有效點的 Haversine 距離 `> --split-distance-m`。
-- 與上一有效點的時間差 `> --split-time-sec`。
+遇到每個**有效 GPS 點**時，判斷是否開啟新 `<trkseg>`。下列任一條件
+成立時，該點成為新 segment 的第一點：
+
+- 這是第一個有效 GPS 點。
+- 自上一個有效 GPS 點以來，排序序列中出現過「有時間但無有效 GPS」
+  的圖片（含一張或多張）。
+- 與上一有效 GPS 點的 Haversine 距離 `> --split-distance-m`。
+- 與上一有效 GPS 點的 UTC 時間差 `> --split-time-sec`。
 
 補充規則：
 
@@ -146,6 +191,12 @@ node jpg_to_gpx.js ./geocoded ./output.gpx \
 
 輸出維持目前 `gpx.fmt` 可被 GPX Editor 開啟的 GPX 1.0 結構；creator
 改為工具名稱。所有文字欄位必須進行 XML escaping。
+
+與現有 `gpx.fmt` 輸出之差：
+
+- `<ele>` 僅在高度有效時輸出（`gpx.fmt` 恆輸出該 tag）。
+- 多個 `<trkseg>` 而非單一 segment。
+- `<time>` 來自本工具時間解析規則，不再依賴 `$gpsdatetime`。
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
@@ -194,16 +245,26 @@ node jpg_to_gpx.js ./geocoded ./output.gpx \
 每個切段事件輸出前一點與後一點的檔名，以及切段觸發值，例如：
 
 ```text
-Split: distance 3521.4 m > 200 m
+Split: distance 3521.4 m > 200 m; time 39679 s > 30 s
   from: 2026-05-23T07-37-08+0800_f01170.jpg
   to:   2026-05-23T18-43-27+0800_f00165.jpg
 ```
+
+摘要中 distance / time 切段計數可各自獨立統計（同一次 split 兩者都 +1）。
+
+### 檔案寫入
+
+- 若輸出 GPX 的父目錄不存在，自動建立（`mkdirSync` recursive）。
+- 暫存檔寫在輸出 GPX 同目錄，檔名為 `.<basename>.tmp`；
+  成功後再 `rename` 至目標路徑。
+- 若 `--force` 未指定且輸出檔已存在，不寫入、不建立暫存檔。
 
 下列狀況應以非零 exit code 結束：
 
 - 輸入資料夾不存在或不可讀。
 - 輸出路徑已存在且未提供 `--force`。
-- 門檻或 timezone 參數格式不合法。
+- 門檻或 timezone 參數格式不合法（timezone 僅接受 `±HH:MM` 或
+  `±HHMM` 格式）。
 - 沒有找到 JPG。
 - 沒有任何可輸出的有效 track point。
 - 寫入 GPX 失敗。
@@ -211,20 +272,36 @@ Split: distance 3521.4 m > 200 m
 單一圖片 metadata 無效屬於可恢復錯誤：略過、回報，但若仍有有效點就輸出
 GPX。
 
+- 有有效 track point 且 GPX 寫入成功：exit `0`，即使部分圖片被略過。
+- 有略過圖片時，摘要必須以 skip breakdown 呈現；若存在 `no_time`
+  略過，額外輸出一行 summary warning。
+
 ## 實作約束
 
 - 使用 CommonJS 與 Node.js，風格比照此 package 既有 scripts。
+- 檔案首行：`#!/usr/bin/env node`。
+- `package.json` bin 條目：`"jpg-to-gpx": "./jpg_to_gpx.js"`。
+- `--version` / `--help` 行為比照 `geotag_with_gpx.js`。
 - 優先沿用目前相依套件 `piexifjs` 讀取 EXIF；不要求使用者安裝或呼叫外部
   `exiftool` 才能產生 GPX。
-- Haversine 計算可沿用 `checkimg_speed_dupe.js` 中的距離公式。
-- 僅以串流或逐張讀取所需 metadata 的方式處理；對數千張圖片不得保留 JPEG
-  binary 內容於記憶體。
+- Haversine 距離計算沿用 `checkimg_speed_dupe.js` 的 `distanceKm`，
+  比較門檻前轉換為公尺（`distanceKm * 1000`）。
+- GPS 座標轉換（`convertDMSToDD`）與 EXIF 讀取模式（`piexif.load`）
+  亦沿用該檔案風格。
+- 逐張讀取 JPG、提取 EXIF 後即可釋放該張 binary；不得同時保留
+  所有照片的 JPEG 內容於記憶體。允許使用 `piexifjs` 的
+  `readFileSync` + `piexif.load` 模式（與既有 scripts 一致）。
 - 寫入時先建立完整內容至暫存檔，成功後再 rename 至輸出路徑，避免中途中斷
   留下不完整 GPX。
 
 ## 驗收條件
 
 ### 自動驗證
+
+測試方式：`node test/jpg_to_gpx_test.js`（或 `npm test`），使用
+`photos-de-dupe-scripts/fixtures/jpg_to_gpx/` 內的小型 JPG fixture。
+
+驗收案例：
 
 - 小型 fixture 含四張有效 GPS 照片，其中第 3 張距第 2 張超過 `200 m`：
   輸出應有兩個 `<trkseg>` 且四個 `<trkpt>`。
@@ -233,26 +310,30 @@ GPX。
 - 照片時間不可解析：該點略過且摘要明確警告其無法作為 segment boundary。
 - `<time>` 應為 UTC，含 `+08:00` 的 `07:26:10` 應輸出為前一天
   `23:26:10Z`。
+- `GPSDateStamp` + `GPSTimeStamp` 組合時間解析。
+- `DateTimeOriginal` + 檔名 `+0800` → UTC 轉換。
+- 輸出父目錄不存在時自動建立。
+- 同時超過距離與時間門檻，log 列出兩個原因。
 - 路徑或檔名含 XML 特殊字元時，GPX 仍能被 XML parser 解析。
 - 未提供 `--force` 不可覆蓋已存在的 GPX。
 
-### 實際資料驗證
+### 人工驗證（本機大樣本，不進 CI）
 
-以 `20260523/geocoded` 產生新的 `20260523-segmented.gpx`：
+以 `20260523/geocoded`、`20260524/geocoded` 產生新的 segmented GPX：
 
 - 工具應報告實際輸入數、有效點數、略過數與 segment 數。
+- 略過 1 張的原因（如 `no_time` / `no_gps`）應與 2654 vs 2653 一致。
 - 輸出應包含 `<time>` 值，GPX Editor 不再顯示 `no time values`。
 - 任一同一 `<trkseg>` 內的相鄰點均不得超過設定的距離或時間門檻。
 - 在 GPX Editor 開啟輸出後，不應再出現跨越不連續拍攝地點的長直線。
 
-以 `20260524/geocoded` 重複相同測試，確認工具可處理較大的照片集合。
-
 ## 實作工作項目
 
-1. 新增 `jpg_to_gpx.js` 與命令列參數解析。
-2. 實作 JPG 掃描、EXIF GPS/時間解析及時間來源 fallback。
-3. 實作排序、Haversine 距離計算與 segment 分割。
-4. 實作安全 GPX 寫入與處理摘要。
+1. 新增 `jpg_to_gpx.js`（參數解析、JPG 掃描、EXIF 讀取）。
+2. 實作時間解析（含 GPSDateStamp/GPSTimeStamp 組合與檔名 fallback）
+   及 GPS 有效性判斷。
+3. 實作排序、segment 分割（含無 GPS 中斷標記）與 Haversine 距離。
+4. 實作 GPX 寫入（XML escape、atomic rename）與摘要 / 警告輸出。
 5. 在 `package.json` 註冊 `jpg-to-gpx` bin。
-6. 在 `README.md` 增加使用方式、切段門檻與建議 pipeline。
-7. 建立 fixture/測試，並用 `20260523` 與 `20260524` 實際 GPX 進行人工檢視。
+6. 更新 `README.md` 與根目錄 `readme.md` 步驟 9。
+7. 建立 fixture 與 `test/jpg_to_gpx_test.js`；本機大樣本人工檢核。

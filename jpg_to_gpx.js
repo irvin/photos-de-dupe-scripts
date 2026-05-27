@@ -6,6 +6,8 @@ const piexif = require('piexifjs');
 const packageJson = require('./package.json');
 
 const OFFSET_TIME_ORIGINAL = 0x9011;
+const EXIF_IFD_POINTER = 0x8769;
+const TIFF_TYPE_ASCII = 2;
 const DEFAULT_SPLIT_DISTANCE_M = 200;
 const DEFAULT_SPLIT_TIME_SEC = 30;
 const TIME_MISMATCH_WARN_MS = 2000;
@@ -59,6 +61,117 @@ const parseTimezoneOffset = (value) => {
   }
 
   return sign * (hours * 60 + minutes);
+};
+
+const readOffsetTimeOriginal = (jpegBuffer) => {
+  if (!Buffer.isBuffer(jpegBuffer) || jpegBuffer.length < 4) {
+    return null;
+  }
+
+  let markerOffset = 2;
+  while (markerOffset + 4 <= jpegBuffer.length) {
+    if (jpegBuffer[markerOffset] !== 0xff) {
+      return null;
+    }
+
+    const marker = jpegBuffer[markerOffset + 1];
+    if (marker === 0xda || marker === 0xd9) {
+      return null;
+    }
+
+    const segmentLength = jpegBuffer.readUInt16BE(markerOffset + 2);
+    const segmentStart = markerOffset + 4;
+    const segmentEnd = markerOffset + 2 + segmentLength;
+    if (segmentLength < 2 || segmentEnd > jpegBuffer.length) {
+      return null;
+    }
+
+    if (
+      marker === 0xe1 &&
+      segmentStart + 6 <= segmentEnd &&
+      jpegBuffer.toString('ascii', segmentStart, segmentStart + 6) === 'Exif\0\0'
+    ) {
+      return readTiffOffsetTimeOriginal(jpegBuffer, segmentStart + 6, segmentEnd);
+    }
+
+    markerOffset = segmentEnd;
+  }
+
+  return null;
+};
+
+const readTiffOffsetTimeOriginal = (buffer, tiffStart, tiffEnd) => {
+  if (tiffStart + 8 > tiffEnd) {
+    return null;
+  }
+
+  const byteOrder = buffer.toString('ascii', tiffStart, tiffStart + 2);
+  const littleEndian = byteOrder === 'II';
+  if (!littleEndian && byteOrder !== 'MM') {
+    return null;
+  }
+
+  const readUInt16 = (offset) => {
+    if (offset < tiffStart || offset + 2 > tiffEnd) return null;
+    return littleEndian ? buffer.readUInt16LE(offset) : buffer.readUInt16BE(offset);
+  };
+  const readUInt32 = (offset) => {
+    if (offset < tiffStart || offset + 4 > tiffEnd) return null;
+    return littleEndian ? buffer.readUInt32LE(offset) : buffer.readUInt32BE(offset);
+  };
+  const relativeOffset = (value) => {
+    if (value === null) return null;
+    const offset = tiffStart + value;
+    return offset >= tiffStart && offset < tiffEnd ? offset : null;
+  };
+  const findEntry = (ifdOffset, targetTag) => {
+    const count = readUInt16(ifdOffset);
+    if (count === null || ifdOffset + 2 + count * 12 + 4 > tiffEnd) {
+      return null;
+    }
+
+    for (let i = 0; i < count; i += 1) {
+      const entryOffset = ifdOffset + 2 + i * 12;
+      if (readUInt16(entryOffset) === targetTag) {
+        return entryOffset;
+      }
+    }
+    return null;
+  };
+
+  if (readUInt16(tiffStart + 2) !== 0x2a) {
+    return null;
+  }
+
+  const ifd0Offset = relativeOffset(readUInt32(tiffStart + 4));
+  if (ifd0Offset === null) {
+    return null;
+  }
+
+  const exifPointerEntry = findEntry(ifd0Offset, EXIF_IFD_POINTER);
+  const exifIfdOffset =
+    exifPointerEntry === null ? null : relativeOffset(readUInt32(exifPointerEntry + 8));
+  if (exifIfdOffset === null) {
+    return null;
+  }
+
+  const offsetEntry = findEntry(exifIfdOffset, OFFSET_TIME_ORIGINAL);
+  if (offsetEntry === null || readUInt16(offsetEntry + 2) !== TIFF_TYPE_ASCII) {
+    return null;
+  }
+
+  const count = readUInt32(offsetEntry + 4);
+  if (count === null || count === 0) {
+    return null;
+  }
+
+  const valueStart =
+    count <= 4 ? offsetEntry + 8 : relativeOffset(readUInt32(offsetEntry + 8));
+  if (valueStart === null || valueStart + count > tiffEnd) {
+    return null;
+  }
+
+  return buffer.toString('ascii', valueStart, valueStart + count).replace(/\0+$/, '');
 };
 
 const utcMsFromLocalParts = (year, month, day, hour, minute, second, offsetMinutes) => {
@@ -168,7 +281,7 @@ const parseFilenameDateTime = (basename) => {
   };
 };
 
-const resolveImageTime = (exifData, basename, cliTimezoneMinutes) => {
+const resolveImageTime = (exifData, basename, cliTimezoneMinutes, offsetTimeOriginal) => {
   const gps = exifData['GPS'] || {};
   const exif = exifData['Exif'] || {};
   const image = exifData['0th'] || {};
@@ -183,7 +296,7 @@ const resolveImageTime = (exifData, basename, cliTimezoneMinutes) => {
   const dateParts = parseExifDateTimeParts(dateTimeOriginal);
   const filenameDateTime = parseFilenameDateTime(basename);
 
-  const offsetFromExif = exif[OFFSET_TIME_ORIGINAL];
+  const offsetFromExif = offsetTimeOriginal || exif[OFFSET_TIME_ORIGINAL];
   const offsetFromExifMinutes = offsetFromExif ? parseTimezoneOffset(offsetFromExif) : null;
   if (dateParts && offsetFromExifMinutes !== null) {
     const utcMs = utcMsFromLocalParts(
@@ -294,12 +407,17 @@ const getCoordinates = (exifData) => {
   const latRef = gps[piexif.GPSIFD.GPSLatitudeRef];
   const lonRef = gps[piexif.GPSIFD.GPSLongitudeRef];
 
-  if (!lat || !lon) {
+  if (
+    !lat ||
+    !lon ||
+    !['N', 'S'].includes(String(latRef).toUpperCase()) ||
+    !['E', 'W'].includes(String(lonRef).toUpperCase())
+  ) {
     return null;
   }
 
-  const latitude = convertDMSToDD(lat, latRef);
-  const longitude = convertDMSToDD(lon, lonRef);
+  const latitude = convertDMSToDD(lat, String(latRef).toUpperCase());
+  const longitude = convertDMSToDD(lon, String(lonRef).toUpperCase());
 
   if (
     latitude === null ||
@@ -374,9 +492,10 @@ const readImageRecord = (inputFolder, relPath, cliTimezoneMinutes) => {
   const basename = path.basename(relPath);
 
   let exifData;
+  let jpegBuffer;
   try {
-    const data = fs.readFileSync(absPath).toString('binary');
-    exifData = piexif.load(data);
+    jpegBuffer = fs.readFileSync(absPath);
+    exifData = piexif.load(jpegBuffer.toString('binary'));
   } catch (err) {
     if (err instanceof SyntaxError || /Invalid/.test(String(err.message || err))) {
       return { relPath, basename, skipReason: 'invalid_exif', error: err.message };
@@ -384,14 +503,19 @@ const readImageRecord = (inputFolder, relPath, cliTimezoneMinutes) => {
     return { relPath, basename, skipReason: 'read_error', error: err.message };
   }
 
-  const timeInfo = resolveImageTime(exifData, basename, cliTimezoneMinutes);
+  const timeInfo = resolveImageTime(
+    exifData,
+    basename,
+    cliTimezoneMinutes,
+    readOffsetTimeOriginal(jpegBuffer)
+  );
   if (!timeInfo) {
     return { relPath, basename, skipReason: 'no_time' };
   }
 
   const coordinates = getCoordinates(exifData);
   const timeMismatchWarning =
-    (timeInfo.method === 3 || timeInfo.method === 4) &&
+    timeInfo.method !== 5 &&
     timeInfo.filenameDateTime &&
     Math.abs(timeInfo.utcMs - timeInfo.filenameDateTime.utcMs) > TIME_MISMATCH_WARN_MS
       ? basename
@@ -684,7 +808,7 @@ const run = (options) => {
   } else {
     console.log('CLI fallback timezone: not set');
   }
-  console.log('Time priority: GPS tags > EXIF offset > filename offset > --timezone > filename datetime');
+  console.log('Time priority: GPS tags > EXIF OffsetTimeOriginal > filename offset > --timezone > filename datetime');
   console.log('');
 
   const skipCounts = {
@@ -785,7 +909,7 @@ const run = (options) => {
   }
 
   for (const basename of timeMismatchWarnings) {
-    console.log(`Warning: EXIF time and filename time differ by >2s for ${basename}`);
+    console.log(`Warning: selected metadata time and filename time differ by >2s for ${basename}`);
   }
 
   return 0;

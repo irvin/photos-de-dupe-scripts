@@ -25,12 +25,12 @@ exiftool -p "/Users/Irvin/Coding/360-street-view-photos-processing/gpx.fmt" \
 
 - 現有 `20260523.gpx` 將全部有效點寫入單一 `<trkseg>`，GPX Editor 因此在
   不連續路段間畫出長直線。
-- 現有 GPX 顯示 2,653 個 track points，而資料夾中有 2,654 張 JPG；新工具
-  應明確回報被略過的圖片與原因。
+- 現有 GPX 顯示 2,653 個 track points，資料夾中也有 2,653 張 JPG；新工具
+  應明確回報輸入、輸出點數與被略過的圖片原因。
 - 抽查照片可取得 `GPSLatitude`、`GPSLongitude`、`GPSAltitude` 與
-  `DateTimeOriginal`，但未取得可組成 GPS 時間的 `GPSDateStamp` /
-  `GPSTimeStamp`（ExifTool 的 `$gpsdatetime` 即由此組合）；現有 GPX
-  因此沒有 `<time>` 值。
+  `DateTimeOriginal`、`GPSDateStamp`，但未取得可與 UTC 日期組成完整
+  GPS 時間的 `GPSTimeStamp`（ExifTool 的 `$gpsdatetime` 需兩者組合）；
+  現有 GPX 因此沒有 `<time>` 值。
 - 檔名包含當地時間與時區，例如
   `2026-05-23T07-26-10+0800_f00300.jpg`，可作為 EXIF 未帶 timezone 時的
   時間後備來源。
@@ -119,7 +119,8 @@ node jpg_to_gpx.js ./geocoded ./output.gpx \
   決定正負）。
 - 下列情況視為無效 GPS，等同「無有效 latitude/longitude」：
   - 缺 `GPSLatitude` 或 `GPSLongitude`。
-  - DMS 陣列格式錯誤或 ref 缺失導致 `convertDMSToDD` 回傳 `null`。
+  - DMS 陣列格式錯誤。
+  - `GPSLatitudeRef` 不是 `N` / `S`，或 `GPSLongitudeRef` 不是 `E` / `W`。
   - 轉換後 lat 不在 [-90, 90] 或 lon 不在 [-180, 180]。
 - `GPSAltitude`：自 piexif rational 轉為公尺；若存在
   `GPSAltitudeRef === 1`（海平面下），高度取負值。
@@ -148,9 +149,9 @@ node jpg_to_gpx.js ./geocoded ./output.gpx \
 
 ### 時間一致性警告
 
-當第 3 或第 4 項成功（EXIF 時間 + 時區 offset），且檔名中亦含完整
-可解析時間時，若兩者 UTC 時間相差超過 2 秒，摘要中輸出 warning，
-但仍以 EXIF 時間 + offset 為準。
+當第 1 至第 4 項成功，且檔名中亦含完整可解析時間時，若兩者 UTC 時間
+相差超過 2 秒，摘要中輸出 warning，但仍以優先順序選出的 metadata 時間
+為準。
 
 ### 略過原因分類
 
@@ -282,8 +283,9 @@ GPX。
 - 檔案首行：`#!/usr/bin/env node`。
 - `package.json` bin 條目：`"jpg-to-gpx": "./jpg_to_gpx.js"`。
 - `--version` / `--help` 行為比照 `geotag_with_gpx.js`。
-- 優先沿用目前相依套件 `piexifjs` 讀取 EXIF；不要求使用者安裝或呼叫外部
-  `exiftool` 才能產生 GPX。
+- 沿用目前相依套件 `piexifjs` 讀取 GPS 與既有 EXIF 欄位；由於其不公開
+  EXIF 2.31 的 `OffsetTimeOriginal`，工具從 JPEG APP1/TIFF 結構額外讀取
+  tag `0x9011`。不要求使用者安裝或呼叫外部 `exiftool` 才能產生 GPX。
 - Haversine 距離計算沿用 `checkimg_speed_dupe.js` 的 `distanceKm`，
   比較門檻前轉換為公尺（`distanceKm * 1000`）。
 - GPS 座標轉換（`convertDMSToDD`）與 EXIF 讀取模式（`piexif.load`）
@@ -301,7 +303,8 @@ GPX。
 以 `20260523/geocoded`、`20260524/geocoded` 產生新的 segmented GPX：
 
 - 工具應報告實際輸入數、有效點數、略過數與 segment 數。
-- 略過 1 張的原因（如 `no_time` / `no_gps`）應與 2654 vs 2653 一致。
+- `20260523` 目前應可輸出 2,653 個點且不略過圖片；若來源資料後續有變動，
+  略過原因須由 summary 明確說明。
 - 輸出應包含 `<time>` 值，GPX Editor 不再顯示 `no time values`。
 - 任一同一 `<trkseg>` 內的相鄰點均不得超過設定的距離或時間門檻。
 - 在 GPX Editor 開啟輸出後，不應再出現跨越不連續拍攝地點的長直線。

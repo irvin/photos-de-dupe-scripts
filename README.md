@@ -117,7 +117,8 @@ and time thresholds.
 - Reads EXIF GPS and capture time from `.jpg` files
 - Sorts photos by resolved UTC timestamp
 - Writes GPX 1.0 with multiple `<trkseg>` segments
-- Resolves time from EXIF, filename timezone, or `--timezone` fallback
+- Resolves time from GPS timestamps, EXIF `OffsetTimeOriginal`, filename timezone, or `--timezone` fallback
+- Rejects coordinates that are missing latitude/longitude hemisphere references
 - Reports skipped images by reason (`no_time`, `no_gps`, `read_error`, etc.)
 - Uses atomic temp-file write before renaming output GPX
 

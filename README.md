@@ -103,6 +103,42 @@ This script identifies and moves photos taken while the vehicle was moving slowe
 3. `checkimg_latlong_dup.js`
 4. `checkimg_speed_dupe.js`
 5. `calcimg_dir.js`
+6. `jpg_to_gpx.js`
+
+## [jpg_to_gpx.js](jpg_to_gpx.js)
+
+Generate a segmented GPX track from JPG photos that already contain GPS EXIF
+data. Unlike the old `exiftool -p gpx.fmt` flow, this tool splits
+discontinuous photo sequences into separate `<trkseg>` blocks using distance
+and time thresholds.
+
+### Features
+
+- Reads EXIF GPS and capture time from `.jpg` files
+- Sorts photos by resolved UTC timestamp
+- Writes GPX 1.0 with multiple `<trkseg>` segments
+- Resolves time from EXIF, filename timezone, or `--timezone` fallback
+- Reports skipped images by reason (`no_time`, `no_gps`, `read_error`, etc.)
+- Uses atomic temp-file write before renaming output GPX
+
+### Usage
+
+1. Install dependencies:
+
+    ```bash
+    npm install piexifjs
+    ```
+
+2. Run the script:
+
+    ```bash
+    node jpg_to_gpx.js <inputFolder> <outputGpx>
+    node jpg_to_gpx.js ./geocoded ./output.gpx --split-distance-m 200 --split-time-sec 30 --force
+    node jpg_to_gpx.js ./geocoded ./output.gpx --timezone +08:00 --recursive
+    ```
+
+> Note: unlike `geotag_with_gpx.js` and `checkimg_speed_dupe.js`, this tool
+> scans only the first directory level unless `--recursive` is provided.
 
 ## [calcimg_dir.js](calcimg_dir.js)
 
@@ -180,6 +216,7 @@ When installed globally, you can use these commands:
     checkimg-latlong-dup --version
     checkimg-speed-dupe --version
     calcimg-dir --version
+    jpg-to-gpx --version
     ```
 
 ## License

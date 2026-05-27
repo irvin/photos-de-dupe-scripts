@@ -1,6 +1,6 @@
 {
   "name": "image-dedupe-scripts",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Scripts for deduplicating images based on content, GPS coordinates, and speed.",
   "main": "index.js",
   "bin": {
@@ -8,7 +8,8 @@
     "calcimg-dir": "./calcimg_dir.js",
     "checkimg-content-dup": "./checkimg_content_dup.js",
     "checkimg-latlong-dup": "./checkimg_latlong_dup.js",
-    "checkimg-speed-dupe": "./checkimg_speed_dupe.js"
+    "checkimg-speed-dupe": "./checkimg_speed_dupe.js",
+    "jpg-to-gpx": "./jpg_to_gpx.js"
   },
   "license": "MIT",
   "dependencies": {

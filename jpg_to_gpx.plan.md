@@ -296,28 +296,7 @@ GPX。
 
 ## 驗收條件
 
-### 自動驗證
-
-測試方式：`node test/jpg_to_gpx_test.js`（或 `npm test`），使用
-`photos-de-dupe-scripts/fixtures/jpg_to_gpx/` 內的小型 JPG fixture。
-
-驗收案例：
-
-- 小型 fixture 含四張有效 GPS 照片，其中第 3 張距第 2 張超過 `200 m`：
-  輸出應有兩個 `<trkseg>` 且四個 `<trkpt>`。
-- 相鄰點距離低於門檻但時間相隔超過 `30 sec`：應切成兩個 segments。
-- 照片時間有效但缺 GPS：該點略過，前後有效點不可落在同一 segment。
-- 照片時間不可解析：該點略過且摘要明確警告其無法作為 segment boundary。
-- `<time>` 應為 UTC，含 `+08:00` 的 `07:26:10` 應輸出為前一天
-  `23:26:10Z`。
-- `GPSDateStamp` + `GPSTimeStamp` 組合時間解析。
-- `DateTimeOriginal` + 檔名 `+0800` → UTC 轉換。
-- 輸出父目錄不存在時自動建立。
-- 同時超過距離與時間門檻，log 列出兩個原因。
-- 路徑或檔名含 XML 特殊字元時，GPX 仍能被 XML parser 解析。
-- 未提供 `--force` 不可覆蓋已存在的 GPX。
-
-### 人工驗證（本機大樣本，不進 CI）
+### 人工驗證
 
 以 `20260523/geocoded`、`20260524/geocoded` 產生新的 segmented GPX：
 
@@ -336,4 +315,4 @@ GPX。
 4. 實作 GPX 寫入（XML escape、atomic rename）與摘要 / 警告輸出。
 5. 在 `package.json` 註冊 `jpg-to-gpx` bin。
 6. 更新 `README.md` 與根目錄 `readme.md` 步驟 9。
-7. 建立 fixture 與 `test/jpg_to_gpx_test.js`；本機大樣本人工檢核。
+7. 以 `20260523` 與 `20260524` 實際 GPX 進行人工檢視。

@@ -115,6 +115,7 @@ and time thresholds.
 
 ### Features
 
+- Recursively reads all `.jpg` files under the input folder
 - Reads EXIF GPS and capture time from `.jpg` files
 - Sorts photos by resolved UTC timestamp
 - Writes GPX 1.0 with multiple `<trkseg>` segments
@@ -136,11 +137,8 @@ and time thresholds.
     ```bash
     node jpg_to_gpx.js <inputFolder> <outputGpx>
     node jpg_to_gpx.js ./geocoded ./output.gpx --split-distance-m 200 --split-time-sec 30 --force
-    node jpg_to_gpx.js ./geocoded ./output.gpx --timezone +08:00 --recursive
+    node jpg_to_gpx.js ./geocoded ./output.gpx --timezone +08:00 --force
     ```
-
-> Note: unlike `geotag_with_gpx.js` and `checkimg_speed_dupe.js`, this tool
-> scans only the first directory level unless `--recursive` is provided.
 
 ## [calcimg_dir.js](calcimg_dir.js)
 

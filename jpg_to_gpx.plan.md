@@ -79,7 +79,6 @@ jpg-to-gpx <inputFolder> <outputGpx> [options]
 | `--split-distance-m <meters>` | `200` | 相鄰有效點距離大於此值時開始新的 `<trkseg>`。 |
 | `--split-time-sec <seconds>` | `30` | 相鄰有效點時間差大於此值時開始新的 `<trkseg>`。 |
 | `--timezone <offset>` | 無 | 後備時區。接受 `+08:00` 或 `+0800` 格式。 |
-| `--recursive` | `false` | 遞迴尋找輸入資料夾下的 JPG。未指定時只處理資料夾第一層。 |
 | `--force` | `false` | 允許覆蓋既有輸出 GPX；未指定且輸出檔已存在時終止。 |
 | `--version` | - | 顯示工具版本。 |
 | `--help` | - | 顯示參數與範例。 |
@@ -104,9 +103,8 @@ node jpg_to_gpx.js ./geocoded ./output.gpx \
   --force
 ```
 
-> 注意：`geotag_with_gpx.js`、`checkimg_speed_dupe.js` 等腳本預設遞迴掃描
-> 子目錄；本工具預設只處理輸入資料夾第一層。若 geocoded 照片在子目錄中，
-> 需加 `--recursive`。
+> 注意：本工具會遞迴掃描輸入資料夾下所有子目錄中的 JPG，與
+> `geotag_with_gpx.js` 的收集方式一致。
 
 ## 輸入資料與欄位規則
 

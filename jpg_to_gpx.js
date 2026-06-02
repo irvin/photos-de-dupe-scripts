@@ -456,30 +456,21 @@ const formatUtcIso = (utcMs) => {
   return `${year}-${month}-${day}T${hour}:${minute}:${second}Z`;
 };
 
-const collectJpgFiles = (inputFolder, recursive) => {
+const collectJpgFiles = (inputFolder) => {
   const results = [];
+  const stack = ['.'];
 
-  if (recursive) {
-    const stack = ['.'];
-    while (stack.length > 0) {
-      const relDir = stack.pop();
-      const absDir = path.join(inputFolder, relDir);
-      const entries = fs.readdirSync(absDir, { withFileTypes: true });
+  while (stack.length > 0) {
+    const relDir = stack.pop();
+    const absDir = path.join(inputFolder, relDir);
+    const entries = fs.readdirSync(absDir, { withFileTypes: true });
 
-      for (const entry of entries) {
-        const relPath = relDir === '.' ? entry.name : path.join(relDir, entry.name);
-        if (entry.isDirectory()) {
-          stack.push(relPath);
-        } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.jpg')) {
-          results.push(relPath);
-        }
-      }
-    }
-  } else {
-    const entries = fs.readdirSync(inputFolder, { withFileTypes: true });
     for (const entry of entries) {
-      if (entry.isFile() && entry.name.toLowerCase().endsWith('.jpg')) {
-        results.push(entry.name);
+      const relPath = relDir === '.' ? entry.name : path.join(relDir, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(relPath);
+      } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.jpg')) {
+        results.push(relPath);
       }
     }
   }
@@ -670,7 +661,6 @@ const parseCliArgs = (argv) => {
     splitDistanceM: DEFAULT_SPLIT_DISTANCE_M,
     splitTimeSec: DEFAULT_SPLIT_TIME_SEC,
     timezone: null,
-    recursive: false,
     force: false,
     help: false,
     version: false,
@@ -686,10 +676,6 @@ const parseCliArgs = (argv) => {
     }
     if (arg === '--version') {
       options.version = true;
-      continue;
-    }
-    if (arg === '--recursive') {
-      options.recursive = true;
       continue;
     }
     if (arg === '--force') {
@@ -737,7 +723,6 @@ Options:
   --split-distance-m <meters>  Split when adjacent points exceed distance (default: 200)
   --split-time-sec <seconds>   Split when adjacent points exceed time gap (default: 30)
   --timezone <offset>          Fallback timezone (+08:00 or +0800)
-  --recursive                  Recursively scan input folder for JPG files
   --force                      Overwrite existing output GPX
   --version                    Show version
   --help                       Show this help
@@ -794,7 +779,7 @@ const run = (options) => {
     return 1;
   }
 
-  const jpgFiles = collectJpgFiles(inputFolder, options.recursive);
+  const jpgFiles = collectJpgFiles(inputFolder);
   if (jpgFiles.length === 0) {
     console.error(`No JPG files found in: ${inputFolder}`);
     return 1;

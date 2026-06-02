@@ -43,11 +43,12 @@ This script identifies and moves photos with identical GPS coordinates to an out
 
 ### Features
 
-- Reads all `.jpg` images in the input folder
+- Recursively processes all subfolders that contain `.jpg` images (same scan rules as `checkimg_speed_dupe.js` and `calcimg_dir.js`)
+- Sorts images by EXIF `DateTimeOriginal` within each folder (falls back to file `mtime`)
 - Uses `exif-parser` to extract GPS coordinates
-- Multi-threaded processing (4 workers)
 - Compares consecutive images' GPS coordinates
-- Preserves original files by moving duplicates to output folder
+- Moves removed images to the output folder, preserving paths relative to the input root
+- Single-threaded processing per folder (avoids rename races)
 
 ### Usage
 

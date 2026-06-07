@@ -187,32 +187,48 @@ const processFolder = (folderPath, inputRoot, outputRoot, minKphThreshold) => {
   let movedCount = 0;
 
   for (let i = 1; i < files.length; i++) {
-    const prev = files[i - 1];
     const curr = files[i];
 
-    if (!prev.coordinates || !curr.coordinates) {
+    if (!curr.coordinates) {
       console.log(`Skipping ${curr.name}: missing GPS`);
       continue;
     }
 
-    const speed = speedKph(prev, curr);
-    if (speed === null) {
-      console.log(`Skipping ${curr.name}: invalid time delta`);
-      continue;
-    }
+    // Keep the last frame in a slow/stationary run: peel earlier frames one by
+    // one, then compare the same curr against the next earlier kept frame (not
+    // only the immediate neighbor). Without this, removing one middle frame
+    // leaves a gap so the next CLI run finds another slow pair.
+    let prevIdx = i - 1;
+    while (prevIdx >= 0) {
+      const prev = files[prevIdx];
 
-    if (speed < minKphThreshold) {
-      const src = path.join(folderPath, prev.name);
-      if (!fs.existsSync(src)) {
-        console.log(`Already moved: ${prev.name}`);
+      if (!prev.coordinates) {
+        prevIdx--;
         continue;
       }
 
-      const dest = getOutputPath(inputRoot, outputRoot, folderPath, prev.name);
-      fs.mkdirSync(path.dirname(dest), { recursive: true });
-      fs.renameSync(src, dest);
-      movedCount++;
-      console.log(`Moved: ${prev.name} (${speed.toFixed(2)} kph < ${minKphThreshold})`);
+      const src = path.join(folderPath, prev.name);
+      if (!fs.existsSync(src)) {
+        prevIdx--;
+        continue;
+      }
+
+      const speed = speedKph(prev, curr);
+      if (speed === null) {
+        console.log(`Skipping ${curr.name}: invalid time delta`);
+        break;
+      }
+
+      if (speed < minKphThreshold) {
+        const dest = getOutputPath(inputRoot, outputRoot, folderPath, prev.name);
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        fs.renameSync(src, dest);
+        movedCount++;
+        console.log(`Moved: ${prev.name} (${speed.toFixed(2)} kph < ${minKphThreshold})`);
+        prevIdx--;
+      } else {
+        break;
+      }
     }
   }
 

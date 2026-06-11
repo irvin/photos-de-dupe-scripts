@@ -5,61 +5,7 @@ const path = require('path');
 const piexif = require('piexifjs');
 const packageJson = require('./package.json');
 
-if (process.argv.includes('--version')) {
-  console.log(`checkimg-speed-dupe version: ${packageJson.version}`);
-  process.exit(0);
-}
-
-if (process.argv.length !== 5) {
-  console.error('Usage: node checkimg_speed_dupe.js <inputFolder> <outputFolder> <minKph>');
-  process.exit(1);
-}
-
-const inputFolder = path.resolve(process.argv[2]);
-const outputFolder = path.resolve(process.argv[3]);
-const minKph = parseFloat(process.argv[4]);
-
-if (!Number.isFinite(minKph) || minKph < 0) {
-  console.error('minKph must be a non-negative number');
-  process.exit(1);
-}
-
-if (!fs.existsSync(outputFolder)) {
-  fs.mkdirSync(outputFolder, { recursive: true });
-}
-
-const scanDirectory = (dirPath) => {
-  const foldersWithJpg = [];
-
-  const scanRecursive = (currentPath) => {
-    try {
-      const items = fs.readdirSync(currentPath);
-      const hasJpgFiles = items.some(item => item.toLowerCase().endsWith('.jpg'));
-      const hasSubdirs = items.some(item => {
-        const itemPath = path.join(currentPath, item);
-        return fs.statSync(itemPath).isDirectory();
-      });
-
-      if (hasJpgFiles) {
-        foldersWithJpg.push(currentPath);
-      }
-
-      if (!hasJpgFiles && hasSubdirs) {
-        items.forEach(item => {
-          const itemPath = path.join(currentPath, item);
-          if (fs.statSync(itemPath).isDirectory()) {
-            scanRecursive(itemPath);
-          }
-        });
-      }
-    } catch (err) {
-      console.error(`Error scanning directory ${currentPath}: ${err.message}`);
-    }
-  };
-
-  scanRecursive(dirPath);
-  return foldersWithJpg;
-};
+const SPLIT_TIME_SEC = 30;
 
 const convertDMSToDD = (dmsArray, ref) => {
   if (!Array.isArray(dmsArray) || dmsArray.length !== 3) {
@@ -154,10 +100,133 @@ const speedKph = (prev, curr) => {
   return km / (dtMs / (1000 * 3600));
 };
 
+/**
+ * Split sorted files into continuous sequences by adjacent capture time gaps.
+ * @returns {{ sequences: object[][], timeGapSplits: number }}
+ */
+const splitIntoSequences = (files, splitTimeSec = SPLIT_TIME_SEC) => {
+  if (files.length === 0) {
+    return { sequences: [], timeGapSplits: 0 };
+  }
+
+  const maxGapMs = splitTimeSec * 1000;
+  const sequences = [[files[0]]];
+  let timeGapSplits = 0;
+
+  for (let i = 1; i < files.length; i++) {
+    const prev = files[i - 1];
+    const curr = files[i];
+    const dtMs = curr.time - prev.time;
+
+    if (dtMs > 0 && dtMs <= maxGapMs) {
+      sequences[sequences.length - 1].push(curr);
+    } else {
+      sequences.push([curr]);
+      timeGapSplits++;
+    }
+  }
+
+  return { sequences, timeGapSplits };
+};
+
+/**
+ * Mark earlier photos in adjacent slow pairs within each sequence.
+ * @returns {{ toRemove: Set<string>, unmeasurablePairs: number }}
+ */
+const markPhotosToRemove = (sequences, minKphThreshold) => {
+  const toRemove = new Set();
+  let unmeasurablePairs = 0;
+
+  for (const sequence of sequences) {
+    for (let i = 1; i < sequence.length; i++) {
+      const prev = sequence[i - 1];
+      const curr = sequence[i];
+
+      if (!prev.coordinates || !curr.coordinates) {
+        unmeasurablePairs++;
+        continue;
+      }
+
+      const speed = speedKph(prev, curr);
+      if (speed === null) {
+        unmeasurablePairs++;
+        continue;
+      }
+
+      if (speed < minKphThreshold) {
+        toRemove.add(prev.name);
+      }
+    }
+  }
+
+  return { toRemove, unmeasurablePairs };
+};
+
+const scanDirectory = (dirPath) => {
+  const foldersWithJpg = [];
+
+  const scanRecursive = (currentPath) => {
+    try {
+      const items = fs.readdirSync(currentPath);
+      const hasJpgFiles = items.some(item => item.toLowerCase().endsWith('.jpg'));
+      const hasSubdirs = items.some(item => {
+        const itemPath = path.join(currentPath, item);
+        return fs.statSync(itemPath).isDirectory();
+      });
+
+      if (hasJpgFiles) {
+        foldersWithJpg.push(currentPath);
+      }
+
+      if (!hasJpgFiles && hasSubdirs) {
+        items.forEach(item => {
+          const itemPath = path.join(currentPath, item);
+          if (fs.statSync(itemPath).isDirectory()) {
+            scanRecursive(itemPath);
+          }
+        });
+      }
+    } catch (err) {
+      console.error(`Error scanning directory ${currentPath}: ${err.message}`);
+    }
+  };
+
+  scanRecursive(dirPath);
+  return foldersWithJpg;
+};
+
 const getOutputPath = (inputRoot, outputRoot, folderPath, fileName) => {
   const srcPath = path.join(folderPath, fileName);
   const relativePath = path.relative(inputRoot, srcPath);
   return path.join(outputRoot, relativePath);
+};
+
+const moveMarkedPhotos = (folderPath, inputRoot, outputRoot, toRemove) => {
+  let movedCount = 0;
+  let skippedCount = 0;
+
+  for (const fileName of toRemove) {
+    const src = path.join(folderPath, fileName);
+    if (!fs.existsSync(src)) {
+      console.warn(`Skip (missing source): ${fileName}`);
+      skippedCount++;
+      continue;
+    }
+
+    const dest = getOutputPath(inputRoot, outputRoot, folderPath, fileName);
+    if (fs.existsSync(dest)) {
+      console.error(`Skip (destination exists): ${dest}`);
+      skippedCount++;
+      continue;
+    }
+
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.renameSync(src, dest);
+    movedCount++;
+    console.log(`Moved: ${fileName}`);
+  }
+
+  return { movedCount, skippedCount };
 };
 
 const processFolder = (folderPath, inputRoot, outputRoot, minKphThreshold) => {
@@ -182,75 +251,76 @@ const processFolder = (folderPath, inputRoot, outputRoot, minKphThreshold) => {
     return 0;
   }
 
-  console.log(`找到 ${files.length} 張圖片，門檻 ${minKphThreshold} kph`);
+  const { sequences, timeGapSplits } = splitIntoSequences(files);
+  const { toRemove, unmeasurablePairs } = markPhotosToRemove(sequences, minKphThreshold);
+  const { movedCount, skippedCount } = moveMarkedPhotos(
+    folderPath,
+    inputRoot,
+    outputRoot,
+    toRemove
+  );
 
-  let movedCount = 0;
+  console.log(`掃描 ${files.length} 張，連續序列 ${sequences.length} 段`);
+  console.log(`時間間隔切分 ${timeGapSplits} 次，無法判定相鄰組 ${unmeasurablePairs} 組`);
+  console.log(`標記 ${toRemove.size} 張，移動 ${movedCount} 張，跳過 ${skippedCount} 張`);
+  console.log(`資料夾 ${folderPath} 完成。`);
 
-  for (let i = 1; i < files.length; i++) {
-    const curr = files[i];
-
-    if (!curr.coordinates) {
-      console.log(`Skipping ${curr.name}: missing GPS`);
-      continue;
-    }
-
-    // Keep the last frame in a slow/stationary run: peel earlier frames one by
-    // one, then compare the same curr against the next earlier kept frame (not
-    // only the immediate neighbor). Without this, removing one middle frame
-    // leaves a gap so the next CLI run finds another slow pair.
-    let prevIdx = i - 1;
-    while (prevIdx >= 0) {
-      const prev = files[prevIdx];
-
-      if (!prev.coordinates) {
-        prevIdx--;
-        continue;
-      }
-
-      const src = path.join(folderPath, prev.name);
-      if (!fs.existsSync(src)) {
-        prevIdx--;
-        continue;
-      }
-
-      const speed = speedKph(prev, curr);
-      if (speed === null) {
-        console.log(`Skipping ${curr.name}: invalid time delta`);
-        break;
-      }
-
-      if (speed < minKphThreshold) {
-        const dest = getOutputPath(inputRoot, outputRoot, folderPath, prev.name);
-        fs.mkdirSync(path.dirname(dest), { recursive: true });
-        fs.renameSync(src, dest);
-        movedCount++;
-        console.log(`Moved: ${prev.name} (${speed.toFixed(2)} kph < ${minKphThreshold})`);
-        prevIdx--;
-      } else {
-        break;
-      }
-    }
-  }
-
-  console.log(`資料夾 ${folderPath} 完成，移動 ${movedCount} 張。`);
   return movedCount;
 };
 
-const foldersToProcess = scanDirectory(inputFolder);
+const runCli = () => {
+  if (process.argv.includes('--version')) {
+    console.log(`checkimg-speed-dupe version: ${packageJson.version}`);
+    process.exit(0);
+  }
 
-if (foldersToProcess.length === 0) {
-  console.log(`在 ${inputFolder} 中沒有找到包含 .jpg 檔案的資料夾。`);
-  process.exit(1);
+  if (process.argv.length !== 5) {
+    console.error('Usage: node checkimg_speed_dupe.js <inputFolder> <outputFolder> <minKph>');
+    process.exit(1);
+  }
+
+  const inputFolder = path.resolve(process.argv[2]);
+  const outputFolder = path.resolve(process.argv[3]);
+  const minKph = parseFloat(process.argv[4]);
+
+  if (!Number.isFinite(minKph) || minKph < 0) {
+    console.error('minKph must be a non-negative number');
+    process.exit(1);
+  }
+
+  if (!fs.existsSync(outputFolder)) {
+    fs.mkdirSync(outputFolder, { recursive: true });
+  }
+
+  const foldersToProcess = scanDirectory(inputFolder);
+
+  if (foldersToProcess.length === 0) {
+    console.log(`在 ${inputFolder} 中沒有找到包含 .jpg 檔案的資料夾。`);
+    process.exit(1);
+  }
+
+  console.log(`找到 ${foldersToProcess.length} 個包含圖片的資料夾:`);
+  foldersToProcess.forEach(folder => {
+    console.log(`  - ${folder}`);
+  });
+
+  let totalMoved = 0;
+  foldersToProcess.forEach(folderPath => {
+    totalMoved += processFolder(folderPath, inputFolder, outputFolder, minKph);
+  });
+
+  console.log(`\n全部完成。共移動 ${totalMoved} 張圖片到 ${outputFolder}`);
+};
+
+if (require.main === module) {
+  runCli();
 }
 
-console.log(`找到 ${foldersToProcess.length} 個包含圖片的資料夾:`);
-foldersToProcess.forEach(folder => {
-  console.log(`  - ${folder}`);
-});
-
-let totalMoved = 0;
-foldersToProcess.forEach(folderPath => {
-  totalMoved += processFolder(folderPath, inputFolder, outputFolder, minKph);
-});
-
-console.log(`\n全部完成。共移動 ${totalMoved} 張圖片到 ${outputFolder}`);
+module.exports = {
+  SPLIT_TIME_SEC,
+  splitIntoSequences,
+  markPhotosToRemove,
+  speedKph,
+  distanceKm,
+  processFolder,
+};

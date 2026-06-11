@@ -1,6 +1,9 @@
 {
   "name": "image-dedupe-scripts",
-  "version": "1.5.1",
+  "version": "1.6.0",
+  "scripts": {
+    "test": "node --test checkimg_speed_dupe.test.js"
+  },
   "description": "Scripts for deduplicating images based on content, GPS coordinates, and speed.",
   "main": "index.js",
   "bin": {

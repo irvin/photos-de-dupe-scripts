@@ -66,16 +66,25 @@ This script identifies and moves photos with identical GPS coordinates to an out
 
 ## [checkimg_speed_dupe.js](checkimg_speed_dupe.js)
 
-This script identifies and moves photos taken while the vehicle was moving slower than a threshold (km/h), based on GPS and EXIF timestamps between consecutive images. When a slow segment is detected, the **previous** image is moved so the **last** image in a stop sequence is kept (same behavior as `checkimg_latlong_dup.js`).
+This script identifies and moves photos taken while the vehicle was moving slower than a threshold (km/h), based on GPS and EXIF timestamps between **original adjacent** images. When a slow segment is detected, the **previous** image is moved so the **last** image in a stop sequence is kept (same behavior as `checkimg_latlong_dup.js`).
 
 ### Features
 
 - Recursively processes all subfolders that contain `.jpg` images (same scan rules as `calcimg_dir.js`)
 - Sorts images by EXIF `DateTimeOriginal` within each folder (falls back to file `mtime`)
+- Splits photos into continuous capture sequences when adjacent shots are more than 30 seconds apart
 - Uses `piexifjs` for EXIF GPS and timestamp reading
-- Computes speed with Haversine distance between consecutive GPS points
+- Computes speed with Haversine distance between consecutive GPS points within each sequence
+- Marks all removals first, then moves files once (no peel-back across non-adjacent photos)
+- Skips moving when the destination file already exists (no silent overwrite)
 - Moves removed images to the output folder, preserving paths relative to the input root
 - Single-threaded processing per folder (avoids rename races)
+
+### Tests
+
+```bash
+npm test
+```
 
 ### Usage
 

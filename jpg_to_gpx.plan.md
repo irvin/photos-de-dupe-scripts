@@ -41,8 +41,10 @@ exiftool -p "/Users/Irvin/Coding/360-street-view-photos-processing/gpx.fmt" \
 
 - 從輸入資料夾讀取 `.jpg` / `.JPG` 照片的 EXIF GPS 與拍攝時間。
 - 按實際拍攝時間排序照片，而不是依檔案列舉順序排序。
-- 輸出一個包含一個 `<trk>`、多個 `<trkseg>` 的 GPX 檔案。
+- 依照片所在資料夾輸出多個具名 `<trk>`，每個 `<trk>` 可包含多個
+  `<trkseg>`。
 - 以可設定的距離與時間門檻切斷軌跡。
+- 支援批次處理 root 第一層的每個資料夾，在各資料夾內產生同名 GPX。
 - 在終端輸出處理摘要與每個切段原因。
 - 加入 `README.md` 使用說明及 `package.json` CLI 入口。
 
@@ -64,18 +66,21 @@ exiftool -p "/Users/Irvin/Coding/360-street-view-photos-processing/gpx.fmt" \
 
 ```bash
 node jpg_to_gpx.js <inputFolder> <outputGpx> [options]
+node jpg_to_gpx.js --batch <rootFolder> [options]
 ```
 
 安裝成全域指令後：
 
 ```bash
 jpg-to-gpx <inputFolder> <outputGpx> [options]
+jpg-to-gpx --batch <rootFolder> [options]
 ```
 
 ### 選項
 
 | 選項 | 預設值 | 說明 |
 | --- | --- | --- |
+| `--batch <rootFolder>` | 無 | 處理 root 第一層的每個非隱藏資料夾，在各資料夾內產生 `<資料夾名>.gpx`。 |
 | `--split-distance-m <meters>` | `200` | 相鄰有效點距離大於此值時開始新的 `<trkseg>`。 |
 | `--split-time-sec <seconds>` | `30` | 相鄰有效點時間差大於此值時開始新的 `<trkseg>`。 |
 | `--timezone <offset>` | 無 | 後備時區。接受 `+08:00` 或 `+0800` 格式。 |
@@ -103,8 +108,15 @@ node jpg_to_gpx.js ./geocoded ./output.gpx \
   --force
 ```
 
+```bash
+node jpg_to_gpx.js --batch ./photos --timezone +08:00 --force
+```
+
 > 注意：本工具會遞迴掃描輸入資料夾下所有子目錄中的 JPG，與
 > `geotag_with_gpx.js` 的收集方式一致。
+
+批次模式只把 root 第一層資料夾視為獨立工作；root 直屬 JPG 不處理。
+每個工作會遞迴收集其下所有 JPG。
 
 ## 輸入資料與欄位規則
 
@@ -194,6 +206,10 @@ node jpg_to_gpx.js ./geocoded ./output.gpx \
 與現有 `gpx.fmt` 輸出之差：
 
 - `<ele>` 僅在高度有效時輸出（`gpx.fmt` 恆輸出該 tag）。
+- 每個含有效 GPS 照片的資料夾建立一個 `<trk>`，並以相對資料夾路徑
+  寫入 `<trk><name>`。
+- `<trk>` 依第一個有效 GPS 點的時間排序，並按輸出順序寫入從 `1`
+  開始遞增的 `<number>`。
 - 多個 `<trkseg>` 而非單一 segment。
 - `<time>` 來自本工具時間解析規則，不再依賴 `$gpsdatetime`。
 
@@ -205,6 +221,8 @@ node jpg_to_gpx.js ./geocoded ./output.gpx \
  xmlns="http://www.topografix.com/GPX/1/0"
  xsi:schemaLocation="http://www.topografix.com/GPX/1/0 http://www.topografix.com/GPX/1/0/gpx.xsd">
  <trk>
+   <name>part-1</name>
+   <number>1</number>
    <trkseg>
      <trkpt lat="24.993003" lon="121.508817666667">
        <ele>77.3</ele>
@@ -214,6 +232,13 @@ node jpg_to_gpx.js ./geocoded ./output.gpx \
    </trkseg>
    <trkseg>
      <!-- 另一段不連續軌跡 -->
+   </trkseg>
+ </trk>
+ <trk>
+   <name>part-2/nested</name>
+   <number>2</number>
+   <trkseg>
+     <!-- 另一個照片資料夾的軌跡 -->
    </trkseg>
  </trk>
 </gpx>

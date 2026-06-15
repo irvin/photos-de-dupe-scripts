@@ -125,9 +125,11 @@ and time thresholds.
 ### Features
 
 - Recursively reads all `.jpg` files under the input folder
+- Groups photos by their containing folder and writes each folder as a named `<trk>`
 - Reads EXIF GPS and capture time from `.jpg` files
 - Sorts photos by resolved UTC timestamp
 - Writes GPX 1.0 with multiple `<trkseg>` segments
+- Batch mode creates one GPX for each first-level folder under a root folder
 - Resolves time from GPS timestamps, EXIF `OffsetTimeOriginal`, filename timezone, or `--timezone` fallback
 - Rejects coordinates that are missing latitude/longitude hemisphere references
 - Reports skipped images by reason (`no_time`, `no_gps`, `read_error`, etc.)
@@ -147,7 +149,36 @@ and time thresholds.
     node jpg_to_gpx.js <inputFolder> <outputGpx>
     node jpg_to_gpx.js ./geocoded ./output.gpx --split-distance-m 200 --split-time-sec 30 --force
     node jpg_to_gpx.js ./geocoded ./output.gpx --timezone +08:00 --force
+    node jpg_to_gpx.js --batch ./photos --timezone +08:00 --force
     ```
+
+### Batch mode
+
+`--batch <rootFolder>` processes each non-hidden first-level folder as an
+independent GPX job. For example:
+
+```text
+photos/
+├── trip-a/
+│   ├── part-1/*.jpg
+│   └── part-2/nested/*.jpg
+└── trip-b/*.jpg
+```
+
+produces:
+
+```text
+photos/trip-a/trip-a.gpx
+photos/trip-b/trip-b.gpx
+```
+
+Each GPX recursively includes all JPG files below its first-level input folder.
+Photos are grouped by their containing folder. Each group is written as a
+separate `<trk>` whose `<name>` is the relative folder path; existing distance,
+time, and missing-GPS rules may split that track into multiple `<trkseg>`
+elements. Tracks remain sorted by their first valid photo time and receive
+sequential `<number>` values starting at `1`. JPG files directly under the
+first-level input folder use that folder's name as the track name.
 
 ## [calcimg_dir.js](calcimg_dir.js)
 

@@ -478,6 +478,13 @@ const collectJpgFiles = (inputFolder) => {
   return results.sort();
 };
 
+const trackNameForDirectory = (inputFolder, relDir) => {
+  if (relDir === '.') {
+    return path.basename(inputFolder);
+  }
+  return relDir.split(path.sep).join('/');
+};
+
 const readImageRecord = (inputFolder, relPath, cliTimezoneMinutes) => {
   const absPath = path.join(inputFolder, relPath);
   const basename = path.basename(relPath);
@@ -615,7 +622,46 @@ const buildSegments = (records, splitDistanceM, splitTimeSec) => {
   };
 };
 
-const buildGpxXml = (segments) => {
+const buildTracks = (inputFolder, records, splitDistanceM, splitTimeSec) => {
+  const recordsByDirectory = new Map();
+
+  for (const record of records) {
+    const relDir = path.dirname(record.relPath);
+    if (!recordsByDirectory.has(relDir)) {
+      recordsByDirectory.set(relDir, []);
+    }
+    recordsByDirectory.get(relDir).push(record);
+  }
+
+  const tracks = [];
+  for (const [relDir, directoryRecords] of recordsByDirectory) {
+    if (!directoryRecords.some((record) => record.coordinates)) {
+      continue;
+    }
+
+    const segmentResult = buildSegments(
+      directoryRecords,
+      splitDistanceM,
+      splitTimeSec
+    );
+    const firstPoint = segmentResult.segments[0][0];
+    tracks.push({
+      name: trackNameForDirectory(inputFolder, relDir),
+      relDir,
+      firstUtcMs: firstPoint.utcMs,
+      ...segmentResult,
+    });
+  }
+
+  return tracks.sort((a, b) => {
+    if (a.firstUtcMs !== b.firstUtcMs) {
+      return a.firstUtcMs - b.firstUtcMs;
+    }
+    return a.name.localeCompare(b.name);
+  });
+};
+
+const buildGpxXml = (tracks) => {
   const lines = [
     '<?xml version="1.0" encoding="utf-8"?>',
     '<gpx version="1.0"',
@@ -623,26 +669,30 @@ const buildGpxXml = (segments) => {
     ' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"',
     ' xmlns="http://www.topografix.com/GPX/1/0"',
     ' xsi:schemaLocation="http://www.topografix.com/GPX/1/0 http://www.topografix.com/GPX/1/0/gpx.xsd">',
-    ' <trk>',
   ];
 
-  for (const segment of segments) {
-    lines.push('   <trkseg>');
-    for (const point of segment) {
-      lines.push(
-        `     <trkpt lat="${point.coordinates.lat}" lon="${point.coordinates.lon}">`
-      );
-      if (point.coordinates.ele !== null && point.coordinates.ele !== undefined) {
-        lines.push(`       <ele>${point.coordinates.ele}</ele>`);
+  for (const [trackIndex, track] of tracks.entries()) {
+    lines.push(' <trk>');
+    lines.push(`   <name>${escapeXml(track.name)}</name>`);
+    lines.push(`   <number>${trackIndex + 1}</number>`);
+    for (const segment of track.segments) {
+      lines.push('   <trkseg>');
+      for (const point of segment) {
+        lines.push(
+          `     <trkpt lat="${point.coordinates.lat}" lon="${point.coordinates.lon}">`
+        );
+        if (point.coordinates.ele !== null && point.coordinates.ele !== undefined) {
+          lines.push(`       <ele>${point.coordinates.ele}</ele>`);
+        }
+        lines.push(`       <time>${formatUtcIso(point.utcMs)}</time>`);
+        lines.push(`       <name>${escapeXml(point.basename)}</name>`);
+        lines.push('     </trkpt>');
       }
-      lines.push(`       <time>${formatUtcIso(point.utcMs)}</time>`);
-      lines.push(`       <name>${escapeXml(point.basename)}</name>`);
-      lines.push('     </trkpt>');
+      lines.push('   </trkseg>');
     }
-    lines.push('   </trkseg>');
+    lines.push(' </trk>');
   }
 
-  lines.push(' </trk>');
   lines.push('</gpx>');
   return `${lines.join('\n')}\n`;
 };
@@ -662,6 +712,7 @@ const parseCliArgs = (argv) => {
     splitTimeSec: DEFAULT_SPLIT_TIME_SEC,
     timezone: null,
     force: false,
+    batchRoot: null,
     help: false,
     version: false,
     positional: [],
@@ -680,6 +731,14 @@ const parseCliArgs = (argv) => {
     }
     if (arg === '--force') {
       options.force = true;
+      continue;
+    }
+    if (arg === '--batch') {
+      options.batchRoot = argv[++i];
+      continue;
+    }
+    if (arg.startsWith('--batch=')) {
+      options.batchRoot = arg.slice('--batch='.length);
       continue;
     }
     if (arg === '--split-distance-m') {
@@ -717,9 +776,12 @@ const parseCliArgs = (argv) => {
 };
 
 const printHelp = () => {
-  console.log(`Usage: node jpg_to_gpx.js <inputFolder> <outputGpx> [options]
+  console.log(`Usage:
+  node jpg_to_gpx.js <inputFolder> <outputGpx> [options]
+  node jpg_to_gpx.js --batch <rootFolder> [options]
 
 Options:
+  --batch <rootFolder>          Create one GPX for each first-level folder
   --split-distance-m <meters>  Split when adjacent points exceed distance (default: 200)
   --split-time-sec <seconds>   Split when adjacent points exceed time gap (default: 30)
   --timezone <offset>          Fallback timezone (+08:00 or +0800)
@@ -730,59 +792,33 @@ Options:
 Examples:
   node jpg_to_gpx.js ./geocoded ./output.gpx
   node jpg_to_gpx.js ./geocoded ./output.gpx --split-distance-m 100 --timezone +08:00 --force
+  node jpg_to_gpx.js --batch ./photos --timezone +08:00 --force
 `);
 };
 
-const run = (options) => {
-  if (options.help) {
-    printHelp();
-    return 0;
-  }
-
-  if (options.version) {
-    console.log(`jpg-to-gpx version: ${packageJson.version}`);
-    return 0;
-  }
-
-  if (options.positional.length !== 2) {
-    printHelp();
-    return 1;
-  }
-
-  if (
-    !Number.isFinite(options.splitDistanceM) ||
-    options.splitDistanceM < 0 ||
-    !Number.isFinite(options.splitTimeSec) ||
-    options.splitTimeSec < 0
-  ) {
-    console.error('Split thresholds must be non-negative numbers.');
-    return 1;
-  }
-
-  const cliTimezoneMinutes = options.timezone ? parseTimezoneOffset(options.timezone) : null;
-  if (options.timezone && cliTimezoneMinutes === null) {
-    console.error(`Invalid timezone format: ${options.timezone}`);
-    return 1;
-  }
-
-  const inputFolder = path.resolve(options.positional[0]);
-  const outputGpx = path.resolve(options.positional[1]);
-
+const processFolder = ({
+  inputFolder,
+  outputGpx,
+  splitDistanceM,
+  splitTimeSec,
+  cliTimezoneMinutes,
+  force,
+}) => {
   if (!fs.existsSync(inputFolder) || !fs.statSync(inputFolder).isDirectory()) {
     console.error(`Input folder does not exist or is not readable: ${inputFolder}`);
-    return 1;
+    return { status: 'failed', inputFolder, outputGpx, reason: 'invalid_input' };
   }
 
-  if (fs.existsSync(outputGpx) && !options.force) {
+  if (fs.existsSync(outputGpx) && !force) {
     console.error(`Output GPX already exists: ${outputGpx}`);
     console.error('Use --force to overwrite.');
-    return 1;
+    return { status: 'failed', inputFolder, outputGpx, reason: 'output_exists' };
   }
 
   const jpgFiles = collectJpgFiles(inputFolder);
   if (jpgFiles.length === 0) {
-    console.error(`No JPG files found in: ${inputFolder}`);
-    return 1;
+    console.log(`Skip (no JPG files): ${inputFolder}`);
+    return { status: 'skipped', inputFolder, outputGpx, reason: 'no_jpg' };
   }
 
   console.log(`Processing ${jpgFiles.length} JPG file(s) from: ${inputFolder}`);
@@ -839,34 +875,42 @@ const run = (options) => {
   const trackRecords = records.filter((record) => record.coordinates);
   if (trackRecords.length === 0) {
     console.error('No valid track points found.');
-    return 1;
+    return { status: 'failed', inputFolder, outputGpx, reason: 'no_track_points' };
   }
 
-  const {
-    segments,
-    splitEvents,
-    distanceSplitCount,
-    timeSplitCount,
-    maxSplitDistanceM,
-    maxSplitTimeSec,
-  } = buildSegments(records, options.splitDistanceM, options.splitTimeSec);
-
-  for (const event of splitEvents) {
-    console.log(`Split: ${event.reasons.join('; ')}`);
-    console.log(`  from: ${event.from}`);
-    console.log(`  to:   ${event.to}`);
+  const tracks = buildTracks(inputFolder, records, splitDistanceM, splitTimeSec);
+  for (const track of tracks) {
+    for (const event of track.splitEvents) {
+      console.log(`Split (${track.name}): ${event.reasons.join('; ')}`);
+      console.log(`  from: ${event.from}`);
+      console.log(`  to:   ${event.to}`);
+    }
   }
 
-  const gpxContent = buildGpxXml(segments);
+  const gpxContent = buildGpxXml(tracks);
 
   try {
     writeGpxAtomic(outputGpx, gpxContent);
   } catch (err) {
     console.error(`Failed to write GPX: ${err.message}`);
-    return 1;
+    return { status: 'failed', inputFolder, outputGpx, reason: 'write_error' };
   }
 
   const skippedTotal = Object.values(skipCounts).reduce((sum, count) => sum + count, 0);
+  const segmentCount = tracks.reduce((sum, track) => sum + track.segments.length, 0);
+  const distanceSplitCount = tracks.reduce(
+    (sum, track) => sum + track.distanceSplitCount,
+    0
+  );
+  const timeSplitCount = tracks.reduce((sum, track) => sum + track.timeSplitCount, 0);
+  const maxSplitDistanceM = tracks.reduce(
+    (max, track) => Math.max(max, track.maxSplitDistanceM),
+    0
+  );
+  const maxSplitTimeSec = tracks.reduce(
+    (max, track) => Math.max(max, track.maxSplitTimeSec),
+    0
+  );
 
   console.log('');
   console.log('Summary');
@@ -881,7 +925,8 @@ const run = (options) => {
   for (const [source, count] of Object.entries(timeSourceCounts).sort((a, b) => b[1] - a[1])) {
     console.log(`    ${source}: ${count}`);
   }
-  console.log(`  Track segments: ${segments.length}`);
+  console.log(`  Tracks: ${tracks.length}`);
+  console.log(`  Track segments: ${segmentCount}`);
   console.log(`  Distance splits: ${distanceSplitCount} (max ${maxSplitDistanceM.toFixed(1)} m)`);
   console.log(`  Time splits: ${timeSplitCount} (max ${Math.round(maxSplitTimeSec)} s)`);
   console.log(`  Output GPX: ${outputGpx}`);
@@ -897,7 +942,117 @@ const run = (options) => {
     console.log(`Warning: selected metadata time and filename time differ by >2s for ${basename}`);
   }
 
-  return 0;
+  return {
+    status: 'success',
+    inputFolder,
+    outputGpx,
+    jpgCount: jpgFiles.length,
+    trackPointCount: trackRecords.length,
+    trackCount: tracks.length,
+    segmentCount,
+    skipCounts,
+  };
+};
+
+const discoverBatchJobs = (rootFolder) => {
+  return fs
+    .readdirSync(rootFolder, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+    .map((entry) => ({
+      inputFolder: path.join(rootFolder, entry.name),
+      outputGpx: path.join(rootFolder, entry.name, `${entry.name}.gpx`),
+    }))
+    .sort((a, b) => path.basename(a.inputFolder).localeCompare(path.basename(b.inputFolder)));
+};
+
+const runBatch = (rootFolder, commonOptions) => {
+  if (!fs.existsSync(rootFolder) || !fs.statSync(rootFolder).isDirectory()) {
+    console.error(`Batch root does not exist or is not readable: ${rootFolder}`);
+    return 1;
+  }
+
+  const jobs = discoverBatchJobs(rootFolder);
+  if (jobs.length === 0) {
+    console.error(`No first-level folders found in: ${rootFolder}`);
+    return 1;
+  }
+
+  console.log(`Batch root: ${rootFolder}`);
+  console.log(`First-level folders found: ${jobs.length}`);
+
+  const results = [];
+  for (const [index, job] of jobs.entries()) {
+    console.log('');
+    console.log(`[${index + 1}/${jobs.length}] ${path.basename(job.inputFolder)}`);
+    results.push(processFolder({ ...job, ...commonOptions }));
+  }
+
+  const successCount = results.filter((result) => result.status === 'success').length;
+  const skippedCount = results.filter((result) => result.status === 'skipped').length;
+  const failedCount = results.filter((result) => result.status === 'failed').length;
+
+  console.log('');
+  console.log('Batch summary');
+  console.log(`  Successful: ${successCount}`);
+  console.log(`  Skipped: ${skippedCount}`);
+  console.log(`  Failed: ${failedCount}`);
+
+  return failedCount > 0 ? 1 : 0;
+};
+
+const run = (options) => {
+  if (options.help) {
+    printHelp();
+    return 0;
+  }
+
+  if (options.version) {
+    console.log(`jpg-to-gpx version: ${packageJson.version}`);
+    return 0;
+  }
+
+  if (
+    !Number.isFinite(options.splitDistanceM) ||
+    options.splitDistanceM < 0 ||
+    !Number.isFinite(options.splitTimeSec) ||
+    options.splitTimeSec < 0
+  ) {
+    console.error('Split thresholds must be non-negative numbers.');
+    return 1;
+  }
+
+  const cliTimezoneMinutes = options.timezone ? parseTimezoneOffset(options.timezone) : null;
+  if (options.timezone && cliTimezoneMinutes === null) {
+    console.error(`Invalid timezone format: ${options.timezone}`);
+    return 1;
+  }
+
+  const commonOptions = {
+    splitDistanceM: options.splitDistanceM,
+    splitTimeSec: options.splitTimeSec,
+    cliTimezoneMinutes,
+    force: options.force,
+  };
+
+  if (options.batchRoot !== null) {
+    if (!options.batchRoot || options.positional.length !== 0) {
+      printHelp();
+      return 1;
+    }
+    return runBatch(path.resolve(options.batchRoot), commonOptions);
+  }
+
+  if (options.positional.length !== 2) {
+    printHelp();
+    return 1;
+  }
+
+  const result = processFolder({
+    inputFolder: path.resolve(options.positional[0]),
+    outputGpx: path.resolve(options.positional[1]),
+    ...commonOptions,
+  });
+  return result.status === 'success' ? 0 : 1;
 };
 
 const main = () => {
@@ -913,3 +1068,15 @@ const main = () => {
 if (require.main === module) {
   main();
 }
+
+module.exports = {
+  buildGpxXml,
+  buildSegments,
+  buildTracks,
+  collectJpgFiles,
+  discoverBatchJobs,
+  parseCliArgs,
+  processFolder,
+  run,
+  trackNameForDirectory,
+};

@@ -12,7 +12,8 @@
     "checkimg-content-dup": "./checkimg_content_dup.js",
     "checkimg-latlong-dup": "./checkimg_latlong_dup.js",
     "checkimg-speed-dupe": "./checkimg_speed_dupe.js",
-    "jpg-to-gpx": "./jpg_to_gpx.js"
+    "jpg-to-gpx": "./jpg_to_gpx.js",
+    "rename-by-exif-time": "./rename_by_exif_time.js"
   },
   "license": "MIT",
   "dependencies": {

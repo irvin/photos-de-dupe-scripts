@@ -180,6 +180,28 @@ elements. Tracks remain sorted by their first valid photo time and receive
 sequential `<number>` values starting at `1`. JPG files directly under the
 first-level input folder use that folder's name as the track name.
 
+## [rename_by_exif_time.js](rename_by_exif_time.js)
+
+Rename JPG files from their EXIF capture time.
+
+### Features
+
+- Recursively reads `.jpg` / `.jpeg` files by default
+- Uses EXIF `DateTimeOriginal`, then `DateTimeDigitized`, then image `DateTime`
+- Uses EXIF `OffsetTimeOriginal` / `OffsetTime` / `OffsetTimeDigitized` when present
+- Falls back to `--timezone` when EXIF offset is missing
+- Generates names like `2023-04-16T18-47-03+0800.jpg`
+- Avoids overwrites by appending `_001`, `_002`, ...
+- Dry-run by default; files are only renamed with `--apply`
+
+### Usage
+
+```bash
+node rename_by_exif_time.js ./photos
+node rename_by_exif_time.js ./photos --timezone +08:00 --apply
+node rename_by_exif_time.js ./photos --prefix MAH06455_ --lower-ext --apply
+```
+
 ## [calcimg_dir.js](calcimg_dir.js)
 
 This script calculates (interpolates) and writes bearing (direction) information to each image's EXIF data based on GPS coordinates of consecutive images. The bearing of the first image will be set to the same as the second image.
@@ -257,6 +279,7 @@ When installed globally, you can use these commands:
     checkimg-speed-dupe --version
     calcimg-dir --version
     jpg-to-gpx --version
+    rename-by-exif-time --version
     ```
 
 ## License

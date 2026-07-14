@@ -3,6 +3,10 @@
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
+
+const execFileAsync = promisify(execFile);
 
 function help() {
   console.log(`用法:
@@ -65,9 +69,12 @@ function files(dir, recursive, rel = '') {
   }).sort((a, b) => a.rel.localeCompare(b.rel));
 }
 
-function run(command, argv) {
-  const result = spawnSync(command, argv, { encoding: 'utf8' });
-  if (result.status !== 0) throw new Error(`${command} 失敗：${result.stderr || result.stdout}`.trim());
+async function run(command, argv) {
+  try {
+    await execFileAsync(command, argv);
+  } catch (error) {
+    throw new Error(`${command} 失敗：${error.stderr || error.stdout || error.message}`.trim());
+  }
 }
 
 function metadata(input) {
@@ -100,16 +107,34 @@ function samples(list, count) {
   return [...new Set(Array.from({ length: n }, (_, i) => Math.round(i * (list.length - 1) / Math.max(1, n - 1))))].map((i) => list[i]);
 }
 
-function transform(job, o) {
+async function transform(job, o) {
   fs.mkdirSync(path.dirname(job.output), { recursive: true });
   if (!o.overwrite && fs.existsSync(job.output)) return 'skipped';
   const geometry = `${o.crop.x}x${o.crop.y}+${o.cropOrigin.x}+${o.cropOrigin.y}`;
   const temp = `${job.output}.transform.tmp.jpg`;
-  if (o.fast) run('jpegtran', ['-copy', 'all', '-perfect', '-crop', geometry, '-outfile', temp, job.input]);
-  else run('magick', [job.input, '-background', 'black', '-rotate', String(o.rotate), '-crop', geometry, '+repage', '-quality', String(o.quality), temp]);
-  run('exiftool', ['-overwrite_original', `-TagsFromFile=${job.input}`, '-all:all', '-unsafe', '-icc_profile', '-Orientation#=1', `-ExifImageWidth=${o.crop.x}`, `-ExifImageHeight=${o.crop.y}`, temp]);
-  fs.renameSync(temp, job.output);
+  try {
+    if (o.fast) await run('jpegtran', ['-copy', 'all', '-perfect', '-crop', geometry, '-outfile', temp, job.input]);
+    else await run('magick', [job.input, '-background', 'black', '-rotate', String(o.rotate), '-crop', geometry, '+repage', '-quality', String(o.quality), temp]);
+    if (!o.fast) {
+      await run('exiftool', ['-overwrite_original', `-TagsFromFile=${job.input}`, '-all:all', '-unsafe', '-icc_profile', '-Orientation#=1', `-ExifImageWidth=${o.crop.x}`, `-ExifImageHeight=${o.crop.y}`, temp]);
+    }
+    fs.renameSync(temp, job.output);
+  } finally {
+    try { fs.unlinkSync(temp); } catch (_) { /* no temporary file */ }
+  }
   return 'written';
+}
+
+async function updateFastOutputDimensions(outputDir, recursive, crop) {
+  const commandArgs = [
+    '-overwrite_original',
+    `-ExifImageWidth=${crop.x}`,
+    `-ExifImageHeight=${crop.y}`,
+    '-ext', 'jpg',
+  ];
+  if (recursive) commandArgs.push('-r');
+  commandArgs.push(outputDir);
+  await run('exiftool', commandArgs);
 }
 
 async function main() {
@@ -129,12 +154,16 @@ async function main() {
   async function worker() {
     while (cursor < list.length) {
       const i = cursor++; const f = list[i];
-      try { const status = transform({ input: f.full, output: path.join(o.output, f.rel) }, o); status === 'written' ? written++ : skipped++; }
+      try { const status = await transform({ input: f.full, output: path.join(o.output, f.rel) }, o); status === 'written' ? written++ : skipped++; }
       catch (e) { failed++; console.error(`失敗：${f.full}：${e.message}`); }
       const done = written + skipped + failed; if (done === 1 || done % 100 === 0 || done === list.length) console.log(`進度：${done}/${list.length}`);
     }
   }
   await Promise.all(Array.from({ length: Math.min(o.concurrency, list.length) }, worker));
+  if (o.fast && written > 0) {
+    await updateFastOutputDimensions(o.output, o.recursive, o.crop);
+    console.log(`metadata：更新 ${o.crop.x}x${o.crop.y} 尺寸欄位`);
+  }
   console.log(`完成：written=${written} skipped=${skipped} failed=${failed}`);
   if (failed) process.exitCode = 1;
 }

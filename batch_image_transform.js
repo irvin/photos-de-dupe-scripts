@@ -165,6 +165,14 @@ function normalTransformArgs(job, o, temp) {
   ];
 }
 
+function validateOutputDimensions(actual, requested) {
+  if (actual.width !== requested.x || actual.height !== requested.y) {
+    throw new Error(
+      `裁切結果為 ${actual.width}x${actual.height}，不符合要求的 ${requested.x}x${requested.y}；請檢查裁切邊界`
+    );
+  }
+}
+
 async function transform(job, o) {
   fs.mkdirSync(path.dirname(job.output), { recursive: true });
   if (!o.overwrite && fs.existsSync(job.output)) return 'skipped';
@@ -176,6 +184,7 @@ async function transform(job, o) {
       await run('jpegtran', ['-copy', 'all', '-perfect', '-crop', geometry, '-outfile', temp, job.input]);
     }
     else await run('magick', normalTransformArgs(job, o, temp));
+    validateOutputDimensions(metadata(temp), o.crop);
     if (!o.fast) {
       await run('exiftool', ['-overwrite_original', `-TagsFromFile=${job.input}`, '-all:all', '-unsafe', '-icc_profile', '-Orientation#=1', `-ExifImageWidth=${o.crop.x}`, `-ExifImageHeight=${o.crop.y}`, temp]);
     }
@@ -240,4 +249,5 @@ module.exports = {
   normalTransformArgs,
   suggest,
   validateFastCropOrigin,
+  validateOutputDimensions,
 };

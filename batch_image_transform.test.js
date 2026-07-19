@@ -5,6 +5,7 @@ const {
   mcu,
   normalTransformArgs,
   validateFastCropOrigin,
+  validateOutputDimensions,
 } = require('./batch_image_transform');
 
 describe('fast crop MCU validation', () => {
@@ -35,5 +36,17 @@ describe('normal transform orientation', () => {
 
     assert.ok(commandArgs.indexOf('-auto-orient') < commandArgs.indexOf('-rotate'));
     assert.ok(commandArgs.indexOf('-auto-orient') < commandArgs.indexOf('-crop'));
+  });
+});
+
+describe('output dimension validation', () => {
+  it('rejects a crop that was clipped to different dimensions', () => {
+    assert.throws(
+      () => validateOutputDimensions({ width: 16, height: 16 }, { x: 32, y: 32 }),
+      /裁切結果為 16x16/
+    );
+    assert.doesNotThrow(
+      () => validateOutputDimensions({ width: 32, height: 32 }, { x: 32, y: 32 })
+    );
   });
 });

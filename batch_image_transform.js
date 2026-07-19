@@ -35,6 +35,15 @@ function pair(value, name, zero = false) {
   return { x: Number(m[1]), y: Number(m[2]) };
 }
 
+function numberArg(value, name, { min = -Infinity, max = Infinity, integer = false } = {}) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < min || number > max) {
+    const range = Number.isFinite(max) ? `${min}..${max}` : `至少 ${min}`;
+    throw new Error(`${name} 必須是${integer ? '整數，且' : ''}${range}`);
+  }
+  return integer ? Math.floor(number) : number;
+}
+
 function args(argv) {
   const o = { cropOrigin: { x: 0, y: 0 }, rotate: 0, quality: 95, concurrency: 4, sampleCount: 10 };
   for (let i = 2; i < argv.length; i++) {
@@ -44,10 +53,10 @@ function args(argv) {
     else if (a === '--output-dir') o.output = next(argv, i++, a);
     else if (a === '--crop') o.crop = pair(next(argv, i++, a), a);
     else if (a === '--crop-origin') o.cropOrigin = pair(next(argv, i++, a), a, true);
-    else if (a === '--rotate-deg') o.rotate = Number(next(argv, i++, a));
-    else if (a === '--jpeg-quality') o.quality = Number(next(argv, i++, a));
-    else if (a === '--concurrency') o.concurrency = Math.max(1, Math.floor(Number(next(argv, i++, a))));
-    else if (a === '--sample-count') o.sampleCount = Math.max(1, Math.floor(Number(next(argv, i++, a))));
+    else if (a === '--rotate-deg') o.rotate = numberArg(next(argv, i++, a), a);
+    else if (a === '--jpeg-quality') o.quality = numberArg(next(argv, i++, a), a, { min: 1, max: 100 });
+    else if (a === '--concurrency') o.concurrency = numberArg(next(argv, i++, a), a, { min: 1, integer: true });
+    else if (a === '--sample-count') o.sampleCount = numberArg(next(argv, i++, a), a, { min: 1, integer: true });
     else if (a === '--recursive') o.recursive = true;
     else if (a === '--overwrite') o.overwrite = true;
     else if (a === '--fast') o.fast = true;
@@ -264,6 +273,7 @@ module.exports = {
   mcu,
   metadata,
   normalTransformArgs,
+  numberArg,
   suggest,
   validateFastCropOrigin,
   validateOutputDimensions,

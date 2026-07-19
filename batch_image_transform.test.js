@@ -4,6 +4,7 @@ const { describe, it } = require('node:test');
 const {
   mcu,
   normalTransformArgs,
+  args,
   validateFastCropOrigin,
   validateOutputDimensions,
   validateSampleConsistency,
@@ -67,5 +68,19 @@ describe('sample consistency validation', () => {
         { width: 1920, height: 1080, sampling: '2x2' },
       ])
     );
+  });
+});
+
+describe('numeric CLI validation', () => {
+  const base = ['node', 'batch_image_transform.js', '--input-dir', 'in', '--output-dir', 'out', '--crop', '10x10'];
+
+  it('rejects invalid concurrency and sample counts', () => {
+    assert.throws(() => args([...base, '--concurrency', 'nope']), /--concurrency/);
+    assert.throws(() => args([...base, '--sample-count', '0']), /--sample-count/);
+  });
+
+  it('rejects invalid rotation and JPEG quality', () => {
+    assert.throws(() => args([...base, '--rotate-deg', 'NaN']), /--rotate-deg/);
+    assert.throws(() => args([...base, '--jpeg-quality', '101']), /--jpeg-quality/);
   });
 });

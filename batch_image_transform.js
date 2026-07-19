@@ -147,6 +147,24 @@ function samples(list, count) {
   return [...new Set(Array.from({ length: n }, (_, i) => Math.round(i * (list.length - 1) / Math.max(1, n - 1))))].map((i) => list[i]);
 }
 
+function normalTransformArgs(job, o, temp) {
+  const geometry = `${o.crop.x}x${o.crop.y}+${o.cropOrigin.x}+${o.cropOrigin.y}`;
+  return [
+    job.input,
+    '-auto-orient',
+    '-background',
+    'black',
+    '-rotate',
+    String(o.rotate),
+    '-crop',
+    geometry,
+    '+repage',
+    '-quality',
+    String(o.quality),
+    temp,
+  ];
+}
+
 async function transform(job, o) {
   fs.mkdirSync(path.dirname(job.output), { recursive: true });
   if (!o.overwrite && fs.existsSync(job.output)) return 'skipped';
@@ -157,7 +175,7 @@ async function transform(job, o) {
       validateFastCropOrigin(metadata(job.input), o.cropOrigin);
       await run('jpegtran', ['-copy', 'all', '-perfect', '-crop', geometry, '-outfile', temp, job.input]);
     }
-    else await run('magick', [job.input, '-background', 'black', '-rotate', String(o.rotate), '-crop', geometry, '+repage', '-quality', String(o.quality), temp]);
+    else await run('magick', normalTransformArgs(job, o, temp));
     if (!o.fast) {
       await run('exiftool', ['-overwrite_original', `-TagsFromFile=${job.input}`, '-all:all', '-unsafe', '-icc_profile', '-Orientation#=1', `-ExifImageWidth=${o.crop.x}`, `-ExifImageHeight=${o.crop.y}`, temp]);
     }
@@ -219,6 +237,7 @@ module.exports = {
   args,
   mcu,
   metadata,
+  normalTransformArgs,
   suggest,
   validateFastCropOrigin,
 };

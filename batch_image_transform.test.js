@@ -1,7 +1,11 @@
 const assert = require('assert');
 const { describe, it } = require('node:test');
 
-const { mcu, validateFastCropOrigin } = require('./batch_image_transform');
+const {
+  mcu,
+  normalTransformArgs,
+  validateFastCropOrigin,
+} = require('./batch_image_transform');
 
 describe('fast crop MCU validation', () => {
   it('derives MCU dimensions from JPEG sampling factors', () => {
@@ -18,5 +22,18 @@ describe('fast crop MCU validation', () => {
     assert.doesNotThrow(
       () => validateFastCropOrigin({ sampling: '2x2' }, { x: 16, y: 32 })
     );
+  });
+});
+
+describe('normal transform orientation', () => {
+  it('normalizes EXIF orientation before rotating and cropping', () => {
+    const commandArgs = normalTransformArgs(
+      { input: 'input.jpg' },
+      { crop: { x: 100, y: 50 }, cropOrigin: { x: 0, y: 0 }, rotate: 2, quality: 95 },
+      'output.jpg'
+    );
+
+    assert.ok(commandArgs.indexOf('-auto-orient') < commandArgs.indexOf('-rotate'));
+    assert.ok(commandArgs.indexOf('-auto-orient') < commandArgs.indexOf('-crop'));
   });
 });

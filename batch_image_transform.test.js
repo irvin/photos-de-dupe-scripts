@@ -5,6 +5,7 @@ const {
   mcu,
   normalTransformArgs,
   args,
+  buildFastMetadataArgFile,
   validateFastCropOrigin,
   validateOutputDimensions,
   validateSampleConsistency,
@@ -82,5 +83,20 @@ describe('numeric CLI validation', () => {
   it('rejects invalid rotation and JPEG quality', () => {
     assert.throws(() => args([...base, '--rotate-deg', 'NaN']), /--rotate-deg/);
     assert.throws(() => args([...base, '--jpeg-quality', '101']), /--jpeg-quality/);
+  });
+});
+
+describe('fast metadata update scope', () => {
+  it('builds an ExifTool batch containing only written output files', () => {
+    const text = buildFastMetadataArgFile(
+      ['/output/new-a.jpg', '/output/new-b.jpg'],
+      { x: 1920, y: 816 }
+    );
+
+    assert.match(text, /-ExifImageWidth=1920/);
+    assert.match(text, /-ExifImageHeight=816/);
+    assert.match(text, /\/output\/new-a\.jpg/);
+    assert.match(text, /\/output\/new-b\.jpg/);
+    assert.doesNotMatch(text, /-r|-ext/);
   });
 });

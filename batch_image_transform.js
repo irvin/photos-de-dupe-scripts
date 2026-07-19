@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
@@ -220,16 +221,25 @@ async function transform(job, o) {
   return 'written';
 }
 
-async function updateFastOutputDimensions(outputDir, recursive, crop) {
-  const commandArgs = [
+function buildFastMetadataArgFile(outputFiles, crop) {
+  return [
     '-overwrite_original',
     `-ExifImageWidth=${crop.x}`,
     `-ExifImageHeight=${crop.y}`,
-    '-ext', 'jpg',
-  ];
-  if (recursive) commandArgs.push('-r');
-  commandArgs.push(outputDir);
-  await run('exiftool', commandArgs);
+    ...outputFiles.map((file) => path.resolve(file)),
+    '',
+  ].join('\n');
+}
+
+async function updateFastOutputDimensions(outputFiles, crop) {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'batch-image-transform-'));
+  const argFile = path.join(tempDir, 'exiftool.args');
+  try {
+    fs.writeFileSync(argFile, buildFastMetadataArgFile(outputFiles, crop));
+    await run('exiftool', ['-@', argFile]);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 }
 
 async function main() {
@@ -247,17 +257,27 @@ async function main() {
     return;
   }
   let cursor = 0; let written = 0; let skipped = 0; let failed = 0;
+  const writtenFiles = [];
   async function worker() {
     while (cursor < list.length) {
       const i = cursor++; const f = list[i];
-      try { const status = await transform({ input: f.full, output: path.join(o.output, f.rel) }, o); status === 'written' ? written++ : skipped++; }
+      const output = path.join(o.output, f.rel);
+      try {
+        const status = await transform({ input: f.full, output }, o);
+        if (status === 'written') {
+          written++;
+          writtenFiles.push(output);
+        } else {
+          skipped++;
+        }
+      }
       catch (e) { failed++; console.error(`失敗：${f.full}：${e.message}`); }
       const done = written + skipped + failed; if (done === 1 || done % 100 === 0 || done === list.length) console.log(`進度：${done}/${list.length}`);
     }
   }
   await Promise.all(Array.from({ length: Math.min(o.concurrency, list.length) }, worker));
   if (o.fast && written > 0) {
-    await updateFastOutputDimensions(o.output, o.recursive, o.crop);
+    await updateFastOutputDimensions(writtenFiles, o.crop);
     console.log(`metadata：更新 ${o.crop.x}x${o.crop.y} 尺寸欄位`);
   }
   console.log(`完成：written=${written} skipped=${skipped} failed=${failed}`);
@@ -270,6 +290,7 @@ if (require.main === module) {
 
 module.exports = {
   args,
+  buildFastMetadataArgFile,
   mcu,
   metadata,
   normalTransformArgs,

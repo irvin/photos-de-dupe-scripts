@@ -2,7 +2,6 @@
 
 const fs = require('fs');
 const path = require('path');
-const { spawnSync } = require('child_process');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 
@@ -78,16 +77,57 @@ async function run(command, argv) {
 }
 
 function metadata(input) {
-  const r = spawnSync('identify', ['-format', '%w %h %[jpeg:sampling-factor]', input], { encoding: 'utf8' });
-  if (r.status !== 0) throw new Error(`無法讀取 JPEG：${input}`);
-  const m = r.stdout.trim().match(/^(\d+) (\d+) (.+)$/);
-  return { width: Number(m[1]), height: Number(m[2]), sampling: m[3] };
+  const data = fs.readFileSync(input);
+  if (data.length < 4 || data[0] !== 0xff || data[1] !== 0xd8) {
+    throw new Error(`不是有效的 JPEG：${input}`);
+  }
+  const sofMarkers = new Set([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf]);
+  let offset = 2;
+  while (offset < data.length) {
+    while (offset < data.length && data[offset] === 0xff) offset++;
+    if (offset >= data.length) break;
+    const marker = data[offset++];
+    if (marker === 0xd9 || marker === 0xda) break;
+    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) continue;
+    if (offset + 2 > data.length) break;
+    const length = data.readUInt16BE(offset);
+    const start = offset + 2;
+    if (length < 2 || offset + length > data.length) break;
+    if (sofMarkers.has(marker)) {
+      const components = data[start + 5];
+      if (start + 6 + components * 3 > offset + length) break;
+      let maxH = 1;
+      let maxV = 1;
+      for (let i = 0; i < components; i++) {
+        const factor = data[start + 7 + i * 3];
+        maxH = Math.max(maxH, factor >> 4);
+        maxV = Math.max(maxV, factor & 0x0f);
+      }
+      return {
+        width: data.readUInt16BE(start + 3),
+        height: data.readUInt16BE(start + 1),
+        sampling: `${maxH}x${maxV}`,
+      };
+    }
+    offset += length;
+  }
+  throw new Error(`無法讀取 JPEG 尺寸與 sampling：${input}`);
 }
 
 function mcu(sampling) {
-  if (/2x2/.test(sampling)) return { w: 16, h: 16 };
-  if (/2x1/.test(sampling)) return { w: 16, h: 8 };
-  return { w: 8, h: 8 };
+  const factors = [...String(sampling).matchAll(/(\d+)x(\d+)/g)];
+  const maxH = Math.max(1, ...factors.map((match) => Number(match[1])));
+  const maxV = Math.max(1, ...factors.map((match) => Number(match[2])));
+  return { w: maxH * 8, h: maxV * 8 };
+}
+
+function validateFastCropOrigin(source, cropOrigin) {
+  const size = mcu(source.sampling);
+  if (cropOrigin.x % size.w !== 0 || cropOrigin.y % size.h !== 0) {
+    throw new Error(
+      `--fast 的 crop-origin ${cropOrigin.x}x${cropOrigin.y} 未對齊 MCU ${size.w}x${size.h}；請先使用 --suggest-fast-crop`
+    );
+  }
 }
 
 function suggest(source, crop) {
@@ -113,7 +153,10 @@ async function transform(job, o) {
   const geometry = `${o.crop.x}x${o.crop.y}+${o.cropOrigin.x}+${o.cropOrigin.y}`;
   const temp = `${job.output}.transform.tmp.jpg`;
   try {
-    if (o.fast) await run('jpegtran', ['-copy', 'all', '-perfect', '-crop', geometry, '-outfile', temp, job.input]);
+    if (o.fast) {
+      validateFastCropOrigin(metadata(job.input), o.cropOrigin);
+      await run('jpegtran', ['-copy', 'all', '-perfect', '-crop', geometry, '-outfile', temp, job.input]);
+    }
     else await run('magick', [job.input, '-background', 'black', '-rotate', String(o.rotate), '-crop', geometry, '+repage', '-quality', String(o.quality), temp]);
     if (!o.fast) {
       await run('exiftool', ['-overwrite_original', `-TagsFromFile=${job.input}`, '-all:all', '-unsafe', '-icc_profile', '-Orientation#=1', `-ExifImageWidth=${o.crop.x}`, `-ExifImageHeight=${o.crop.y}`, temp]);
@@ -168,4 +211,14 @@ async function main() {
   if (failed) process.exitCode = 1;
 }
 
-main().catch((e) => { console.error(e.message); process.exitCode = 1; });
+if (require.main === module) {
+  main().catch((e) => { console.error(e.message); process.exitCode = 1; });
+}
+
+module.exports = {
+  args,
+  mcu,
+  metadata,
+  suggest,
+  validateFastCropOrigin,
+};

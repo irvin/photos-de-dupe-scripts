@@ -6,6 +6,7 @@ const {
   normalTransformArgs,
   validateFastCropOrigin,
   validateOutputDimensions,
+  validateSampleConsistency,
 } = require('./batch_image_transform');
 
 describe('fast crop MCU validation', () => {
@@ -47,6 +48,24 @@ describe('output dimension validation', () => {
     );
     assert.doesNotThrow(
       () => validateOutputDimensions({ width: 32, height: 32 }, { x: 32, y: 32 })
+    );
+  });
+});
+
+describe('sample consistency validation', () => {
+  it('rejects mixed dimensions or sampling factors', () => {
+    assert.throws(
+      () => validateSampleConsistency([
+        { width: 1920, height: 1080, sampling: '2x2' },
+        { width: 1920, height: 1080, sampling: '1x1' },
+      ]),
+      /抽查 JPEG 規格不一致/
+    );
+    assert.doesNotThrow(
+      () => validateSampleConsistency([
+        { width: 1920, height: 1080, sampling: '2x2' },
+        { width: 1920, height: 1080, sampling: '2x2' },
+      ])
     );
   });
 });

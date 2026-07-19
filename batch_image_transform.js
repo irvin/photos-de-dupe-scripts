@@ -147,6 +147,22 @@ function samples(list, count) {
   return [...new Set(Array.from({ length: n }, (_, i) => Math.round(i * (list.length - 1) / Math.max(1, n - 1))))].map((i) => list[i]);
 }
 
+function validateSampleConsistency(checked) {
+  const first = checked[0];
+  const mismatch = checked.find((item) =>
+    item.width !== first.width ||
+    item.height !== first.height ||
+    item.sampling !== first.sampling
+  );
+  if (mismatch) {
+    throw new Error(
+      `抽查 JPEG 規格不一致：基準 ${first.width}x${first.height} sampling=${first.sampling}，` +
+      `發現 ${mismatch.width}x${mismatch.height} sampling=${mismatch.sampling}`
+    );
+  }
+  return first;
+}
+
 function normalTransformArgs(job, o, temp) {
   const geometry = `${o.crop.x}x${o.crop.y}+${o.cropOrigin.x}+${o.cropOrigin.y}`;
   return [
@@ -214,8 +230,9 @@ async function main() {
   if (list.length === 0) throw new Error('輸入目錄沒有 JPEG');
   if (o.suggest) {
     const checked = samples(list, o.sampleCount).map((f) => metadata(f.full));
-    const s = suggest({ ...checked[0] }, { x: o.cropOrigin.x, y: o.cropOrigin.y, width: o.crop.x, height: o.crop.y });
-    console.log(`files: ${list.length}\nsampled: ${checked.length}\nsource: ${checked[0].width}x${checked[0].height}\nsampling: ${checked[0].sampling}\nMCU: ${s.mcu.w}x${s.mcu.h}`);
+    const source = validateSampleConsistency(checked);
+    const s = suggest(source, { x: o.cropOrigin.x, y: o.cropOrigin.y, width: o.crop.x, height: o.crop.y });
+    console.log(`files: ${list.length}\nsampled: ${checked.length}\nsource: ${source.width}x${source.height}\nsampling: ${source.sampling}\nMCU: ${s.mcu.w}x${s.mcu.h}`);
     console.log(`inward: ${s.inward.left}x${s.inward.top} + ${s.inward.width}x${s.inward.height}`);
     console.log(`outward: ${s.outward.left}x${s.outward.top} + ${s.outward.width}x${s.outward.height}`);
     return;
@@ -250,4 +267,5 @@ module.exports = {
   suggest,
   validateFastCropOrigin,
   validateOutputDimensions,
+  validateSampleConsistency,
 };

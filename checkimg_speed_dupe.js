@@ -230,6 +230,10 @@ const moveMarkedPhotos = (folderPath, inputRoot, outputRoot, toRemove) => {
 };
 
 const processFolder = (folderPath, inputRoot, outputRoot, minKphThreshold) => {
+  return processFolderDetailed(folderPath, inputRoot, outputRoot, minKphThreshold).movedCount;
+};
+
+const processFolderDetailed = (folderPath, inputRoot, outputRoot, minKphThreshold) => {
   console.log(`\n=== 處理資料夾: ${folderPath} ===`);
 
   const files = fs.readdirSync(folderPath)
@@ -248,7 +252,7 @@ const processFolder = (folderPath, inputRoot, outputRoot, minKphThreshold) => {
 
   if (files.length < 2) {
     console.log(`跳過（少於 2 張圖片）: ${folderPath}`);
-    return 0;
+    return { movedCount: 0, markedCount: 0, skippedCount: 0 };
   }
 
   const { sequences, timeGapSplits } = splitIntoSequences(files);
@@ -265,7 +269,33 @@ const processFolder = (folderPath, inputRoot, outputRoot, minKphThreshold) => {
   console.log(`標記 ${toRemove.size} 張，移動 ${movedCount} 張，跳過 ${skippedCount} 張`);
   console.log(`資料夾 ${folderPath} 完成。`);
 
-  return movedCount;
+  return { movedCount, markedCount: toRemove.size, skippedCount };
+};
+
+/**
+ * Repeat a folder pass until no photos are marked, or no marked photo can move.
+ * The latter protects callers from an infinite loop when destination conflicts occur.
+ */
+const processUntilStable = (processPass, log = console.log) => {
+  let pass = 0;
+  let totalMoved = 0;
+
+  while (true) {
+    pass++;
+    log(`\n--- 第 ${pass} 輪 ---`);
+    const { movedCount, markedCount, skippedCount } = processPass();
+    totalMoved += movedCount;
+
+    if (markedCount === 0) {
+      log(`第 ${pass} 輪未標記圖片，已穩定。`);
+      return { totalMoved, passes: pass, stable: true };
+    }
+
+    if (movedCount === 0) {
+      log(`第 ${pass} 輪標記 ${markedCount} 張但未移動任何圖片（跳過 ${skippedCount} 張），停止以避免無限重跑。`);
+      return { totalMoved, passes: pass, stable: false };
+    }
+  }
 };
 
 const runCli = () => {
@@ -274,14 +304,18 @@ const runCli = () => {
     process.exit(0);
   }
 
-  if (process.argv.length !== 5) {
-    console.error('Usage: node checkimg_speed_dupe.js <inputFolder> <outputFolder> <minKph>');
+  const args = process.argv.slice(2);
+  const untilStable = args.includes('--until-stable');
+  const positionalArgs = args.filter(arg => arg !== '--until-stable');
+
+  if (positionalArgs.length !== 3) {
+    console.error('Usage: node checkimg_speed_dupe.js <inputFolder> <outputFolder> <minKph> [--until-stable]');
     process.exit(1);
   }
 
-  const inputFolder = path.resolve(process.argv[2]);
-  const outputFolder = path.resolve(process.argv[3]);
-  const minKph = parseFloat(process.argv[4]);
+  const inputFolder = path.resolve(positionalArgs[0]);
+  const outputFolder = path.resolve(positionalArgs[1]);
+  const minKph = parseFloat(positionalArgs[2]);
 
   if (!Number.isFinite(minKph) || minKph < 0) {
     console.error('minKph must be a non-negative number');
@@ -306,7 +340,21 @@ const runCli = () => {
 
   let totalMoved = 0;
   foldersToProcess.forEach(folderPath => {
-    totalMoved += processFolder(folderPath, inputFolder, outputFolder, minKph);
+    if (!untilStable) {
+      totalMoved += processFolder(folderPath, inputFolder, outputFolder, minKph);
+      return;
+    }
+
+    const result = processUntilStable(() => processFolderDetailed(
+      folderPath,
+      inputFolder,
+      outputFolder,
+      minKph
+    ));
+    totalMoved += result.totalMoved;
+    if (!result.stable) {
+      console.warn(`資料夾 ${folderPath} 尚未穩定，請處理輸出位置衝突後再執行。`);
+    }
   });
 
   console.log(`\n全部完成。共移動 ${totalMoved} 張圖片到 ${outputFolder}`);
@@ -323,4 +371,5 @@ module.exports = {
   speedKph,
   distanceKm,
   processFolder,
+  processUntilStable,
 };

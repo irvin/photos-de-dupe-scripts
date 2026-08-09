@@ -97,7 +97,7 @@ npm test
 2. Run the script:
 
     ```bash
-    node checkimg_speed_dupe.js <inputFolder> <outputFolder> <minKph>
+    node checkimg_speed_dupe.js <inputFolder> <outputFolder> <minKph> [--until-stable]
     ```
 
     Example (remove segments slower than 5 km/h):
@@ -105,6 +105,8 @@ npm test
     ```bash
     node checkimg_speed_dupe.js ./photos ./removed 5
     ```
+
+    加上 `--until-stable` 時，會重複以每輪剩餘照片重新判定，直到沒有照片被標記為止。若因輸出目錄已有同名檔而無法移動標記照片，程式會停止並回報尚未穩定，避免無限重跑。
 
 ### Suggested pipeline order
 

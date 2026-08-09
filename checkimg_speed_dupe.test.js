@@ -6,6 +6,7 @@ const {
   SPLIT_TIME_SEC,
   splitIntoSequences,
   markPhotosToRemove,
+  processUntilStable,
   speedKph,
 } = require('./checkimg_speed_dupe');
 
@@ -150,6 +151,30 @@ describe('speedKph', () => {
     const a = photo('a', 10, coord(0, 0));
     const b = photo('b', 10, coord(1, 1));
     assert.strictEqual(speedKph(a, b), null);
+  });
+});
+
+describe('processUntilStable', () => {
+  it('repeats passes until no photos are marked', () => {
+    const results = [
+      { movedCount: 833, markedCount: 833, skippedCount: 0 },
+      { movedCount: 34, markedCount: 34, skippedCount: 0 },
+      { movedCount: 0, markedCount: 0, skippedCount: 0 },
+    ];
+    const logs = [];
+    const result = processUntilStable(() => results.shift(), message => logs.push(message));
+
+    assert.deepStrictEqual(result, { totalMoved: 867, passes: 3, stable: true });
+    assert.ok(logs.includes('第 3 輪未標記圖片，已穩定。'));
+  });
+
+  it('stops instead of looping when marked photos cannot be moved', () => {
+    const result = processUntilStable(
+      () => ({ movedCount: 0, markedCount: 1, skippedCount: 1 }),
+      () => {}
+    );
+
+    assert.deepStrictEqual(result, { totalMoved: 0, passes: 1, stable: false });
   });
 });
 

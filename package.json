@@ -13,8 +13,9 @@
     "checkimg-latlong-dup": "./checkimg_latlong_dup.js",
     "checkimg-speed-dupe": "./checkimg_speed_dupe.js",
     "jpg-to-gpx": "./jpg_to_gpx.js",
-    "rename-by-exif-time": "./rename_by_exif_time.js"
-    ,"batch-image-transform": "./batch_image_transform.js"
+    "rename-by-exif-time": "./rename_by_exif_time.js",
+    "batch-image-transform": "./batch_image_transform.js",
+    "make-panoramax-csv": "./make_panoramax_csv.js"
   },
   "license": "MIT",
   "dependencies": {

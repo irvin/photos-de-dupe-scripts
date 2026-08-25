@@ -204,6 +204,29 @@ node rename_by_exif_time.js ./photos --timezone +08:00 --apply
 node rename_by_exif_time.js ./photos --prefix MAH06455_ --lower-ext --apply
 ```
 
+## [make_panoramax_csv.js](make_panoramax_csv.js)
+
+遞迴掃描指定目錄下**每一個含有 JPEG 的子目錄**（含根目錄本身），依 EXIF 產生供 [Panoramax CLI](https://docs.panoramax.fr/cli/USAGE/#external-metadata) 使用的 `panoramax.csv`。
+
+### Features
+
+- `capture_time` 牆上時間來自 EXIF **`DateTimeOriginal`**；時區預設用 **`OffsetTimeOriginal`**。若指定 **`--timezone`** 則**強制覆寫**所有列的時區
+- 每個有照片的資料夾各自寫入一份 `panoramax.csv`；目錄內所有 `.jpg`／`.jpeg` 都會列入
+- UTF-8、LF、依檔名字典序排序
+
+### Usage
+
+```bash
+# 對 20260814 下每個子目錄（例如 MIO）各產一份 panoramax.csv
+node make_panoramax_csv.js "/Users/Irvin/Downloads/360 photos/wip/20260814"
+
+# 只處理單一資料夾
+node make_panoramax_csv.js "/Users/Irvin/Downloads/360 photos/wip/20260814/MIO"
+
+# 強制所有 capture_time 使用 +12:00（忽略 EXIF OffsetTimeOriginal）
+node make_panoramax_csv.js ./photos --timezone +12:00
+```
+
 ## [calcimg_dir.js](calcimg_dir.js)
 
 This script calculates (interpolates) and writes bearing (direction) information to each image's EXIF data based on GPS coordinates of consecutive images. The bearing of the first image will be set to the same as the second image.
@@ -282,6 +305,7 @@ When installed globally, you can use these commands:
     calcimg-dir --version
     jpg-to-gpx --version
     rename-by-exif-time --version
+    make-panoramax-csv --version
     ```
 
 ## License

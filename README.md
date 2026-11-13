@@ -204,6 +204,19 @@ node rename_by_exif_time.js ./photos --timezone +08:00 --apply
 node rename_by_exif_time.js ./photos --prefix MAH06455_ --lower-ext --apply
 ```
 
+## [batch_image_transform.js](batch_image_transform.js)
+
+批次旋轉、裁切既有的 JPEG。先在此目錄執行 `npm install`，並確認系統可執行 `exiftool`。
+
+```bash
+node batch_image_transform.js --input-dir geocoded --output-dir cropped \
+  --rotate-deg 3 --crop-origin 69x133 --crop 2496x1264
+```
+
+一般模式先校正 EXIF 方向，再用 Sharp 順時針旋轉、裁切，最後重新編碼成 JPEG。`--crop-origin` 和影片轉檔的 `extract.js` 一樣，從旋轉後影像的左上角算起。`--jpeg-quality` 使用 1–100，預設 95。裁切框超出畫布時，該張照片會回報失敗。
+
+只做無損裁切時，可使用 `--fast`，須另外安裝 `jpegtran`。這個模式的起點需對齊 JPEG 的 MCU，可用 `--suggest-fast-crop` 查詢建議值。
+
 ## [make_panoramax_csv.js](make_panoramax_csv.js)
 
 遞迴掃描指定目錄下**每一個含有 JPEG 的子目錄**（含根目錄本身），依 EXIF 產生供 [Panoramax CLI](https://docs.panoramax.fr/cli/USAGE/#external-metadata) 使用的 `panoramax.csv`。

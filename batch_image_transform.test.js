@@ -1,9 +1,12 @@
 const assert = require('assert');
+const fs = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
 const { describe, it } = require('node:test');
 
 const {
   mcu,
-  normalTransformArgs,
+  transformWithSharp,
   args,
   buildFastMetadataArgFile,
   validateFastCropOrigin,
@@ -30,15 +33,33 @@ describe('fast crop MCU validation', () => {
 });
 
 describe('normal transform orientation', () => {
-  it('normalizes EXIF orientation before rotating and cropping', () => {
-    const commandArgs = normalTransformArgs(
-      { input: 'input.jpg' },
-      { crop: { x: 100, y: 50 }, cropOrigin: { x: 0, y: 0 }, rotate: 2, quality: 95 },
-      'output.jpg'
-    );
-
-    assert.ok(commandArgs.indexOf('-auto-orient') < commandArgs.indexOf('-rotate'));
-    assert.ok(commandArgs.indexOf('-auto-orient') < commandArgs.indexOf('-crop'));
+  it('normalizes EXIF orientation before rotating and cropping', async () => {
+    const sharp = require('sharp');
+    const width = 32;
+    const height = 16;
+    const pixels = Buffer.alloc(width * height * 3);
+    for (let i = 0; i < width * height; i++) {
+      const channel = i % width < width / 2 ? 0 : 2;
+      pixels[i * 3 + channel] = 255;
+    }
+    const input = await sharp(pixels, { raw: { width, height, channels: 3 } })
+      .withMetadata({ orientation: 6 })
+      .jpeg()
+      .toBuffer();
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'batch-image-transform-test-'));
+    try {
+      const output = path.join(tempDir, 'output.jpg');
+      await transformWithSharp(input, output, {
+        crop: { x: 6, y: 4 }, cropOrigin: { x: 2, y: 1 }, rotate: 90, quality: 95,
+      });
+      const { data, info } = await sharp(output).raw().toBuffer({ resolveWithObject: true });
+      assert.equal(info.width, 6);
+      assert.equal(info.height, 4);
+      // EXIF 方向和指定旋轉各轉 90°，所以原本右半的藍色落在裁切框內。
+      assert.ok(data[2] > 200 && data[0] < 50);
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
   });
 });
 

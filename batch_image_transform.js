@@ -13,7 +13,7 @@ function help() {
   node batch_image_transform.js --input-dir <目錄> --output-dir <目錄> --crop <WxH> [選項]
 
 選項:
-  --crop-origin <XxY>     裁切起點，預設 0x0
+  --crop-origin <XxY>     從旋轉後影像的左上角算起，預設 0x0
   --rotate-deg <N>        順時針旋轉，預設 0
   --jpeg-quality <N>      一般模式 JPEG quality，預設 95
   --concurrency <N>       平行處理數，預設 4
@@ -173,22 +173,24 @@ function validateSampleConsistency(checked) {
   return first;
 }
 
-function normalTransformArgs(job, o, temp) {
-  const geometry = `${o.crop.x}x${o.crop.y}+${o.cropOrigin.x}+${o.cropOrigin.y}`;
-  return [
-    job.input,
-    '-auto-orient',
-    '-background',
-    'black',
-    '-rotate',
-    String(o.rotate),
-    '-crop',
-    geometry,
-    '+repage',
-    '-quality',
-    String(o.quality),
-    temp,
-  ];
+async function transformWithSharp(input, output, o) {
+  const sharp = require('sharp');
+  const pipeline = sharp(input).autoOrient();
+  const { space } = await pipeline.metadata();
+  // 保留原 ICC 時，輸出的像素也必須留在該描述檔對應的色彩空間。
+  if (space === 'cmyk') {
+    pipeline.pipelineColourspace('cmyk').toColourspace('cmyk');
+  } else if (space === 'b-w') {
+    pipeline.toColourspace('b-w');
+  }
+  if (o.rotate !== 0) {
+    pipeline.rotate(o.rotate, { background: { r: 0, g: 0, b: 0, alpha: 1 } });
+  }
+  await pipeline
+    .extract({ left: o.cropOrigin.x, top: o.cropOrigin.y, width: o.crop.x, height: o.crop.y })
+    .keepIccProfile()
+    .jpeg({ quality: Math.round(o.quality), mozjpeg: true })
+    .toFile(output);
 }
 
 function validateOutputDimensions(actual, requested) {
@@ -202,17 +204,18 @@ function validateOutputDimensions(actual, requested) {
 async function transform(job, o) {
   fs.mkdirSync(path.dirname(job.output), { recursive: true });
   if (!o.overwrite && fs.existsSync(job.output)) return 'skipped';
-  const geometry = `${o.crop.x}x${o.crop.y}+${o.cropOrigin.x}+${o.cropOrigin.y}`;
   const temp = `${job.output}.transform.tmp.jpg`;
   try {
     if (o.fast) {
       validateFastCropOrigin(metadata(job.input), o.cropOrigin);
+      const geometry = `${o.crop.x}x${o.crop.y}+${o.cropOrigin.x}+${o.cropOrigin.y}`;
       await run('jpegtran', ['-copy', 'all', '-perfect', '-crop', geometry, '-outfile', temp, job.input]);
+    } else {
+      await transformWithSharp(job.input, temp, o);
     }
-    else await run('magick', normalTransformArgs(job, o, temp));
     validateOutputDimensions(metadata(temp), o.crop);
     if (!o.fast) {
-      await run('exiftool', ['-overwrite_original', `-TagsFromFile=${job.input}`, '-all:all', '-unsafe', '-icc_profile', '-Orientation#=1', `-ExifImageWidth=${o.crop.x}`, `-ExifImageHeight=${o.crop.y}`, temp]);
+      await run('exiftool', ['-overwrite_original', `-TagsFromFile=${job.input}`, '-all:all', '-unsafe', '--ICC_Profile', '-Orientation#=1', `-ExifImageWidth=${o.crop.x}`, `-ExifImageHeight=${o.crop.y}`, temp]);
     }
     fs.renameSync(temp, job.output);
   } finally {
@@ -293,9 +296,9 @@ module.exports = {
   buildFastMetadataArgFile,
   mcu,
   metadata,
-  normalTransformArgs,
   numberArg,
   suggest,
+  transformWithSharp,
   validateFastCropOrigin,
   validateOutputDimensions,
   validateSampleConsistency,

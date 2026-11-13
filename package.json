@@ -21,6 +21,7 @@
   "dependencies": {
     "jimp": "^0.22.12",
     "piexifjs": "^1.0.6",
-    "exif-parser": "^0.1.12"
+    "exif-parser": "^0.1.12",
+    "sharp": "^0.34.2"
   }
 }

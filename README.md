@@ -220,6 +220,24 @@ node delay_exif_time.js 5 6 +0.2 geocoded geocoded-adjusted-fractional
 - 完成計算後，ExifTool 直接從原檔產生修正版副本。修正會計入原有的次秒，輸出整秒存於 `DateTimeOriginal`，次秒存於 `SubSecTimeOriginal`。無需修正的照片直接複製。整批完成並驗證後才建立指定的輸出目錄。輸出路徑須尚未存在。遇到缺少有效拍攝時間或寫入失敗時，整批停止。
 - 執行時會顯示讀取、寫入、驗證與複製進度，並依原始拍攝時間逐張列出原始時間、間隔、觸發判定、累計偏移與預計輸出時間。
 
+## [calibrate_exif_time.js](calibrate_exif_time.js)
+
+用兩張照片的正確時間做線性校準，將固定比例的時間偏差套用到整批 JPEG。需安裝 `exiftool`。
+
+```bash
+node calibrate_exif_time.js <anchor1File> <anchor1CorrectTime> <anchor2File> <anchor2CorrectTime> <inputFolder> <outfolder> [--dry-run]
+
+node calibrate_exif_time.js \
+  IMG_20261116_100154_00_403.jpg 2026-11-16T10:31:45 \
+  IMG_20261116_100154_00_418.jpg 2026-11-16T10:33:08 \
+  geocoded ../geocoded-calibrated --dry-run
+```
+
+- 輸入兩張照片的完整檔名和正確時間。時間格式為 `YYYY-MM-DDTHH:mm:ss`，可加小數秒，並使用與照片 EXIF 相同的時區。
+- 校準倍率為兩張照片的正確時間差除以原始 EXIF 時間差。原始時間差包含已有的次秒。以較早校準點的正確時間為基準，按此倍率縮放每張照片原始時間相對於該點的差值。區間外的照片也使用同一條公式外推。
+- log 會列出校準點、倍率、逐張修正量、區間外的張數和整批首尾修正量。加上 `--dry-run` 可先預覽。執行寫入時，輸出目錄須尚未存在。
+- 整秒與次秒分別寫入副本的 `DateTimeOriginal` 與 `SubSecTimeOriginal`，結果至少保留毫秒精度。整批輸出完成並驗證後才發布。
+
 ## [batch_image_transform.js](batch_image_transform.js)
 
 批次旋轉、裁切既有的 JPEG。先在此目錄執行 `npm install`，並確認系統可執行 `exiftool`。
@@ -334,6 +352,7 @@ When installed globally, you can use these commands:
     calcimg-dir --version
     jpg-to-gpx --version
     rename-by-exif-time --version
+    calibrate-exif-time --help
     make-panoramax-csv --version
     ```
 

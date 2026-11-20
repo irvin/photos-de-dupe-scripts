@@ -103,22 +103,24 @@ function buildPlan(files, times, min, max, delay) {
   });
 }
 
-function writeAdjustedTimes(folder, changes) {
+function writeAdjustedCopies(input, staging, changes) {
   if (changes.length === 0) return;
   const csvName = '.delay-exif-time.csv';
-  const csvPath = path.join(folder, csvName);
-  const rows = changes.map(({ file, adjusted }) => `"${file.replaceAll('"', '""')}",${adjusted}`);
+  const csvPath = path.join(staging, csvName);
+  const sources = changes.map(({ file, adjusted }) => ({ sourcePath: path.join(input, file), adjusted }));
+  const rows = sources.map(({ sourcePath, adjusted }) => `"${sourcePath.replaceAll('"', '""')}",${adjusted}`);
   fs.writeFileSync(csvPath, [`SourceFile,${DATE_TAG}`, ...rows, ''].join('\n'), { flag: 'wx' });
 
-  const files = changes.map(({ file }) => file);
-  for (let i = 0; i < files.length; i += BATCH_SIZE) {
-    const batch = files.slice(i, i + BATCH_SIZE);
-    runExifTool(folder, [`-csv=${csvName}`, '-overwrite_original', ...batch]);
-    console.log(`已寫入副本 EXIF ${i + batch.length}/${files.length} 張`);
+  for (let i = 0; i < sources.length; i += BATCH_SIZE) {
+    const batch = sources.slice(i, i + BATCH_SIZE).map(({ sourcePath }) => sourcePath);
+    // Keep the output format relative so ExifTool doesn't interpret percent signs in the staging path.
+    runExifTool(staging, [`-csv=${csvName}`, '-o', './', ...batch]);
+    console.log(`已輸出修正 EXIF 的副本 ${i + batch.length}/${sources.length} 張`);
   }
   fs.unlinkSync(csvPath);
 
-  const writtenTimes = readPhotoTimes(folder, files, '已重新讀取寫入結果');
+  const files = changes.map(({ file }) => file);
+  const writtenTimes = readPhotoTimes(staging, files, '已重新讀取寫入結果');
   for (const { file, adjusted } of changes) {
     if (writtenTimes.get(file) !== adjusted) throw new Error(`${file} 寫入後的 EXIF 時間驗證失敗`);
   }
@@ -151,23 +153,23 @@ function main(args) {
   console.log(`輸出目錄：${output}`);
   console.log(`共 ${files.length} 張，原始間隔 ${min} 至 ${max} 秒（含）時，每次偏移 ${delay} 秒`);
 
+  const plan = buildPlan(files, readPhotoTimes(input, files, '已讀取原始 EXIF'), min, max, delay);
+  const changes = plan.filter(({ offset }) => offset !== 0);
+  const unchanged = plan.filter(({ offset }) => offset === 0);
+
   const parent = path.dirname(output);
   fs.mkdirSync(parent, { recursive: true });
   const staging = fs.mkdtempSync(path.join(parent, '.delay-exif-time-'));
   let published = false;
-  let plan;
-  let changes;
   try {
-    for (const [index, file] of files.entries()) {
+    writeAdjustedCopies(input, staging, changes);
+    for (const [index, { file }] of unchanged.entries()) {
       fs.copyFileSync(path.join(input, file), path.join(staging, file), fs.constants.COPYFILE_EXCL);
       const copied = index + 1;
-      if (copied % BATCH_SIZE === 0 || copied === files.length) {
-        console.log(`已複製 ${copied}/${files.length} 張到暫存目錄`);
+      if (copied % BATCH_SIZE === 0 || copied === unchanged.length) {
+        console.log(`已複製無需修正的照片 ${copied}/${unchanged.length} 張`);
       }
     }
-    plan = buildPlan(files, readPhotoTimes(staging, files, '已讀取原始 EXIF'), min, max, delay);
-    changes = plan.filter(({ offset }) => offset !== 0);
-    writeAdjustedTimes(staging, changes);
     if (fs.lstatSync(output, { throwIfNoEntry: false })) {
       throw new Error(`輸出路徑已存在：${output}`);
     }

@@ -204,6 +204,20 @@ node rename_by_exif_time.js ./photos --timezone +08:00 --apply
 node rename_by_exif_time.js ./photos --prefix MAH06455_ --lower-ext --apply
 ```
 
+## [delay_exif_time.js](delay_exif_time.js)
+
+依相鄰照片的原始 EXIF 拍攝時間，累計調整連拍的時間偏移。需安裝 `exiftool`。
+
+```bash
+node delay_exif_time.js <timecriteriaMin> <timecriteriaMax> <delaysec> <inputFolder> <outfolder>
+node delay_exif_time.js 5 6 1 geocoded geocoded-adjusted
+node delay_exif_time.js 5 6 -1 geocoded geocoded-adjusted-earlier
+```
+
+- 直接讀取輸入目錄內的非隱藏 `.jpg`／`.jpeg` 照片，依檔名的數字順序處理。
+- 第一張的偏移為 0。每遇到原始間隔介於 `timecriteriaMin` 和 `timecriteriaMax` 秒（含上下限），該張與後續照片就再累加 `delaysec` 秒。三個參數都是整秒，`delaysec` 可填負數以提前時間。
+- 將整批照片複製到新的輸出目錄，只調整副本的 EXIF `DateTimeOriginal`。輸出路徑須尚未存在。遇到缺少有效拍攝時間、原始時間倒退或寫入失敗時，整批停止。
+
 ## [batch_image_transform.js](batch_image_transform.js)
 
 批次旋轉、裁切既有的 JPEG。先在此目錄執行 `npm install`，並確認系統可執行 `exiftool`。

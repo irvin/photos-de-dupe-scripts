@@ -14,7 +14,6 @@
     "checkimg-speed-dupe": "./checkimg_speed_dupe.js",
     "jpg-to-gpx": "./jpg_to_gpx.js",
     "rename-by-exif-time": "./rename_by_exif_time.js",
-    "delay-exif-time": "./delay_exif_time.js",
     "calibrate-exif-time": "./calibrate_exif_time.js",
     "batch-image-transform": "./batch_image_transform.js",
     "make-panoramax-csv": "./make_panoramax_csv.js"

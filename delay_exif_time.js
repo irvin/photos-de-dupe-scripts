@@ -6,7 +6,9 @@ const { execFileSync } = require('node:child_process');
 
 const BATCH_SIZE = 200;
 const DATE_TAG = 'ExifIFD:DateTimeOriginal';
-const usage = '用法：node delay_exif_time.js <timecriteriaMin> <timecriteriaMax> <delaysec> <inputFolder> <outfolder>';
+const SUBSEC_TAG = 'ExifIFD:SubSecTimeOriginal';
+const usage = '用法：node delay_exif_time.js <timecriteriaMin> <timecriteriaMax> <delaysec> <inputFolder> <outfolder>\n' +
+  'delaysec 可輸入正負整數或小數，例如 +0.2 或 -0.2。';
 
 function parseInteger(value, name) {
   const number = Number(value);
@@ -14,6 +16,24 @@ function parseInteger(value, name) {
     throw new Error(`${name} 必須是整數`);
   }
   return number;
+}
+
+function parseDelay(value) {
+  const match = /^([+-]?)(\d*)(?:\.(\d+))?$/.exec(value);
+  if (!match || (!match[2] && !match[3])) {
+    throw new Error('delaysec 必須是整數或小數，例如 +0.2 或 -0.2');
+  }
+  const [, sign, whole, fraction = ''] = match;
+  const magnitude = BigInt(whole + fraction);
+  const precision = fraction.length;
+  return { units: sign === '-' ? -magnitude : magnitude, precision, scale: 10n ** BigInt(precision) };
+}
+
+function formatOffset(units, { scale, precision }) {
+  const negative = units < 0n;
+  const magnitude = negative ? -units : units;
+  const fraction = (magnitude % scale).toString().padStart(precision, '0').replace(/0+$/, '');
+  return `${negative ? '-' : ''}${magnitude / scale}${fraction ? `.${fraction}` : ''}`;
 }
 
 function runExifTool(cwd, args) {
@@ -46,27 +66,59 @@ function parseExifTime(value) {
   return formatExifTime(seconds) === value ? seconds : null;
 }
 
+function adjustCaptureTime({ file, original, seconds }, offset, delay) {
+  let adjustedSeconds = BigInt(seconds) + offset / delay.scale;
+  let { subseconds } = original;
+  const remainder = offset % delay.scale;
+  if (remainder !== 0n) {
+    const fraction = subseconds.trim();
+    if (!/^\d*$/.test(fraction)) {
+      throw new Error(`${file} 的 EXIF SubSecTimeOriginal 格式錯誤：${JSON.stringify(subseconds)}`);
+    }
+    const precision = Math.max(delay.precision, fraction.length);
+    const scale = 10n ** BigInt(precision);
+    const units = BigInt(fraction.padEnd(precision, '0')) + remainder * (scale / delay.scale);
+    // BigInt division truncates toward zero, so a negative fraction borrows one second.
+    const carry = units < 0n ? -1n : units / scale;
+    adjustedSeconds += carry;
+    subseconds = (units - carry * scale).toString().padStart(precision, '0');
+  }
+  return { dateTime: formatExifTime(Number(adjustedSeconds)), subseconds };
+}
+
 function readPhotoTimes(folder, files, progressLabel) {
   const times = new Map();
   for (let i = 0; i < files.length; i += BATCH_SIZE) {
     const batch = files.slice(i, i + BATCH_SIZE);
-    const json = runExifTool(folder, ['-j', '-File:FileType', `-${DATE_TAG}`, ...batch]);
-    for (const { SourceFile, FileType, DateTimeOriginal } of JSON.parse(json)) {
-      if (FileType === 'JPEG') times.set(SourceFile, DateTimeOriginal);
+    const json = runExifTool(folder, [
+      '-j', '-api', 'StructFormat=JSONQ', '-File:FileType', `-${DATE_TAG}`, `-${SUBSEC_TAG}`, ...batch,
+    ]);
+    for (const { SourceFile, FileType, DateTimeOriginal, SubSecTimeOriginal } of JSON.parse(json)) {
+      if (FileType === 'JPEG') {
+        times.set(SourceFile, {
+          dateTime: DateTimeOriginal,
+          subseconds: String(SubSecTimeOriginal ?? ''),
+        });
+      }
     }
     console.log(`${progressLabel} ${i + batch.length}/${files.length} 張`);
   }
   return times;
 }
 
-function logPhoto({ file, original, gap, offset, adjusted }, decision) {
+function formatCaptureTime(time) {
+  if (!time?.dateTime) return '—';
+  return time.subseconds ? `${time.dateTime}.${time.subseconds}` : time.dateTime;
+}
+
+function logPhoto({ file, original, gap, offset, adjusted }, decision, delay) {
   console.log([
     JSON.stringify(file.slice(2)),
-    original ?? '—',
+    formatCaptureTime(original),
     gap ?? '—',
     decision,
-    offset ?? '—',
-    adjusted ?? '—',
+    offset === undefined ? '—' : formatOffset(offset, delay),
+    formatCaptureTime(adjusted),
   ].join('\t'));
 }
 
@@ -75,9 +127,9 @@ function buildPlan(files, times, min, max, delay) {
   console.log('照片\t原始 EXIF 時間\t原始間隔（秒）\t判定\t累計偏移（秒）\t預計輸出時間');
   const photos = files.map((file) => {
     const original = times.get(file);
-    const seconds = parseExifTime(original);
+    const seconds = parseExifTime(original?.dateTime);
     if (seconds === null) {
-      logPhoto({ file, original }, '缺少有效時間');
+      logPhoto({ file, original }, '缺少有效時間', delay);
       throw new Error(`${file} 缺少有效的 JPEG EXIF DateTimeOriginal`);
     }
     return { file, original, seconds };
@@ -85,19 +137,20 @@ function buildPlan(files, times, min, max, delay) {
   photos.sort((a, b) => a.seconds - b.seconds);
 
   let previous = null;
-  let offset = 0;
-  return photos.map(({ file, original, seconds }) => {
+  let offset = 0n;
+  return photos.map((capture) => {
+    const { file, original, seconds } = capture;
     const gap = previous === null ? null : seconds - previous;
     const triggered = gap !== null && gap >= min && gap <= max;
-    if (triggered) offset += delay;
+    if (triggered) offset += delay.units;
 
-    const adjusted = formatExifTime(seconds + offset);
+    const adjusted = adjustCaptureTime(capture, offset, delay);
     const photo = { file, original, gap, triggered, offset, adjusted };
-    if (adjusted === null) {
-      logPhoto(photo, '超出 EXIF 日期範圍');
+    if (adjusted.dateTime === null) {
+      logPhoto(photo, '超出 EXIF 日期範圍', delay);
       throw new Error(`${file} 的修正結果超出 EXIF 日期範圍`);
     }
-    logPhoto(photo, previous === null ? '第一張' : triggered ? '觸發' : '未觸發');
+    logPhoto(photo, previous === null ? '第一張' : triggered ? '觸發' : '未觸發', delay);
     previous = seconds;
     return photo;
   });
@@ -107,12 +160,17 @@ function writeAdjustedCopies(input, staging, changes) {
   if (changes.length === 0) return;
   const csvName = '.delay-exif-time.csv';
   const csvPath = path.join(staging, csvName);
-  const sources = changes.map(({ file, adjusted }) => ({ sourcePath: path.join(input, file), adjusted }));
-  const rows = sources.map(({ sourcePath, adjusted }) => `"${sourcePath.replaceAll('"', '""')}",${adjusted}`);
-  fs.writeFileSync(csvPath, [`SourceFile,${DATE_TAG}`, ...rows, ''].join('\n'), { flag: 'wx' });
+  const sources = changes.map(({ file }) => path.join(input, file));
+  const rows = changes.map(({ original, adjusted }, index) => {
+    const source = sources[index].replaceAll('"', '""');
+    // An empty CSV value leaves the source tag untouched.
+    const subseconds = adjusted.subseconds === original.subseconds ? '' : adjusted.subseconds;
+    return `"${source}",${adjusted.dateTime},${subseconds}`;
+  });
+  fs.writeFileSync(csvPath, [`SourceFile,${DATE_TAG},${SUBSEC_TAG}`, ...rows, ''].join('\n'), { flag: 'wx' });
 
   for (let i = 0; i < sources.length; i += BATCH_SIZE) {
-    const batch = sources.slice(i, i + BATCH_SIZE).map(({ sourcePath }) => sourcePath);
+    const batch = sources.slice(i, i + BATCH_SIZE);
     // Keep the output format relative so ExifTool doesn't interpret percent signs in the staging path.
     runExifTool(staging, [`-csv=${csvName}`, '-o', './', ...batch]);
     console.log(`已輸出修正 EXIF 的副本 ${i + batch.length}/${sources.length} 張`);
@@ -122,7 +180,10 @@ function writeAdjustedCopies(input, staging, changes) {
   const files = changes.map(({ file }) => file);
   const writtenTimes = readPhotoTimes(staging, files, '已重新讀取寫入結果');
   for (const { file, adjusted } of changes) {
-    if (writtenTimes.get(file) !== adjusted) throw new Error(`${file} 寫入後的 EXIF 時間驗證失敗`);
+    const written = writtenTimes.get(file);
+    if (written?.dateTime !== adjusted.dateTime || written.subseconds !== adjusted.subseconds) {
+      throw new Error(`${file} 寫入後的 EXIF 時間驗證失敗`);
+    }
   }
 }
 
@@ -136,7 +197,7 @@ function main(args) {
   const [rawMin, rawMax, rawDelay, inputFolder, outfolder] = args;
   const min = parseInteger(rawMin, 'timecriteriaMin');
   const max = parseInteger(rawMax, 'timecriteriaMax');
-  const delay = parseInteger(rawDelay, 'delaysec');
+  const delay = parseDelay(rawDelay);
   if (min < 0 || max < min) throw new Error('時間區間必須符合 0 ≤ timecriteriaMin ≤ timecriteriaMax');
 
   const input = path.resolve(inputFolder);
@@ -151,11 +212,11 @@ function main(args) {
 
   console.log(`輸入目錄：${input}`);
   console.log(`輸出目錄：${output}`);
-  console.log(`共 ${files.length} 張，原始間隔 ${min} 至 ${max} 秒（含）時，每次偏移 ${delay} 秒`);
+  console.log(`共 ${files.length} 張，原始間隔 ${min} 至 ${max} 秒（含）時，每次偏移 ${formatOffset(delay.units, delay)} 秒`);
 
   const plan = buildPlan(files, readPhotoTimes(input, files, '已讀取原始 EXIF'), min, max, delay);
-  const changes = plan.filter(({ offset }) => offset !== 0);
-  const unchanged = plan.filter(({ offset }) => offset === 0);
+  const changes = plan.filter(({ offset }) => offset !== 0n);
+  const unchanged = plan.filter(({ offset }) => offset === 0n);
 
   const parent = path.dirname(output);
   fs.mkdirSync(parent, { recursive: true });

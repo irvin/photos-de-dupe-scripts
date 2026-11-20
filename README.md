@@ -214,9 +214,10 @@ node delay_exif_time.js 5 6 1 geocoded geocoded-adjusted
 node delay_exif_time.js 5 6 -1 geocoded geocoded-adjusted-earlier
 ```
 
-- 直接讀取輸入目錄內的非隱藏 `.jpg`／`.jpeg` 照片，依檔名的數字順序處理。
+- 讀完輸入目錄內所有非隱藏 `.jpg`／`.jpeg` 照片的原始 EXIF `DateTimeOriginal`，按拍攝時間由早到晚排序後再計算。
 - 第一張的偏移為 0。每遇到原始間隔介於 `timecriteriaMin` 和 `timecriteriaMax` 秒（含上下限），該張與後續照片就再累加 `delaysec` 秒。三個參數都是整秒，`delaysec` 可填負數以提前時間。
-- 將整批照片複製到新的輸出目錄，只調整副本的 EXIF `DateTimeOriginal`。輸出路徑須尚未存在。遇到缺少有效拍攝時間、原始時間倒退或寫入失敗時，整批停止。
+- 將整批照片複製到新的輸出目錄，只調整副本的 EXIF `DateTimeOriginal`。輸出路徑須尚未存在。遇到缺少有效拍攝時間或寫入失敗時，整批停止。
+- 執行時會顯示複製、讀取與寫入進度，並依原始拍攝時間逐張列出原始時間、間隔、觸發判定、累計偏移與預計輸出時間。
 
 ## [batch_image_transform.js](batch_image_transform.js)
 
